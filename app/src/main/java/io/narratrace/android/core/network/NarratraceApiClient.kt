@@ -96,11 +96,16 @@ class NarratraceApiClient(
         bearer: String? = null,
     ): ApiResult<T> = execute(path, "PATCH", body, serializer, bearer, null)
 
+    /**
+     * [body] is optional because the contract uses both forms: artifact deliveries
+     * take `?id=`, while session revocation sends `{ "scope": "current" }`.
+     */
     suspend fun <T> delete(
         path: String,
         serializer: KSerializer<T>,
         bearer: String? = null,
-    ): ApiResult<T> = execute(path, "DELETE", null, serializer, bearer, null)
+        body: String? = null,
+    ): ApiResult<T> = execute(path, "DELETE", body, serializer, bearer, null)
 
     private suspend fun <T> execute(
         path: String,

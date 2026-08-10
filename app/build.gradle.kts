@@ -26,6 +26,29 @@ val apiBaseUrl: String = run {
         .orEmpty()
 }
 
+/**
+ * The Google Web client ID that Credential Manager presents as `serverClientId`.
+ *
+ * Not a secret — it is the public audience identifier that appears in the `aud`
+ * claim of every ID token, and the backend matches it against
+ * GOOGLE_MOBILE_CLIENT_IDS. It is kept out of the repository anyway so debug,
+ * release, and CI cannot silently diverge in a file someone has to remember to edit.
+ *
+ * Note this is the *Web* client ID, not the Android one. The Android client exists
+ * so Google will issue a credential to this package and signing certificate; it
+ * never appears in the token audience.
+ */
+val googleServerClientId: String = run {
+    val fromEnv = System.getenv("NARRATRACE_GOOGLE_SERVER_CLIENT_ID").orEmpty()
+    if (fromEnv.isNotBlank()) return@run fromEnv
+    val localProperties = rootProject.file("local.properties")
+    if (!localProperties.exists()) return@run ""
+    Properties()
+        .apply { localProperties.inputStream().use(::load) }
+        .getProperty("narratrace.googleServerClientId")
+        .orEmpty()
+}
+
 android {
     namespace = "io.narratrace.android"
     compileSdk = 36
@@ -40,6 +63,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+        buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"$googleServerClientId\"")
     }
 
     buildTypes {
