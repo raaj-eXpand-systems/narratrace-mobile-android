@@ -130,6 +130,15 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // Credential Manager is the supported route to a Google ID token on Android.
+    // The legacy Google Sign-In SDK is deprecated, and the browser-redirect
+    // authorization-code flow iOS uses is unavailable here: Android OAuth clients
+    // are bound to package name and signing certificate and are never issued the
+    // reversed-client-id URL scheme that flow depends on.
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
