@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Narratrace</string>
+    <string name="camera_permission">Narratrace uses the camera only when you choose to take a photo or record a video.</string>
+    <string name="microphone_permission">Narratrace uses the microphone only when you choose to record audio or video for a story.</string>
+</resources>
+
