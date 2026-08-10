@@ -1,8 +1,29 @@
+import java.util.Properties
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
+}
+
+/**
+ * The API origin is machine-supplied and never committed.
+ *
+ * Set `narratrace.apiBaseUrl=https://…` in local.properties (already gitignored),
+ * or supply NARRATRACE_API_BASE_URL in CI. An absent value leaves the build failing
+ * closed at the first request, which is the intended state for a checked-out tree.
+ */
+val apiBaseUrl: String = run {
+    val fromEnv = System.getenv("NARRATRACE_API_BASE_URL").orEmpty()
+    if (fromEnv.isNotBlank()) return@run fromEnv
+    val localProperties = rootProject.file("local.properties")
+    if (!localProperties.exists()) return@run ""
+    Properties()
+        .apply { localProperties.inputStream().use(::load) }
+        .getProperty("narratrace.apiBaseUrl")
+        .orEmpty()
 }
 
 android {
@@ -18,7 +39,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
-        buildConfigField("String", "API_BASE_URL", "\"\"")
+        buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
     }
 
     buildTypes {
@@ -27,6 +48,11 @@ android {
             versionNameSuffix = "-debug"
         }
         release {
+            // A release build must never ship pointed at a non-production or
+            // cleartext origin. Fail the build rather than discover it in the store.
+            check(apiBaseUrl.isBlank() || apiBaseUrl.startsWith("https://")) {
+                "NARRATRACE_API_BASE_URL must be an https:// origin for release builds."
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -46,11 +72,18 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions.jvmTarget = "17"
+    // `kotlinOptions` is deprecated in Kotlin 2.x. The compilerOptions DSL below is
+    // the replacement; the JVM target must stay 17 to match sourceCompatibility above.
 
     packaging.resources.excludes += setOf(
         "/META-INF/{AL2.0,LGPL2.1}",
     )
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
+    }
 }
 
 dependencies {
@@ -71,6 +104,9 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.9.6")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
