@@ -113,7 +113,7 @@ Before implementation, generate a checked-in contract inventory from the current
 
 1. Fetch a one-time server challenge.
 2. Perform Google OAuth authorization code flow with PKCE, state, and server nonce.
-3. Submit the invitation, identity assertion, authenticator MFA code, device metadata, and challenge through `/api/v1/auth/native`.
+3. Submit the invitation, identity assertion, optional account-configured authenticator code, device metadata, and challenge through `/api/v1/auth/native`.
 4. Accept only server-issued account identity and access/refresh tokens.
 5. Encrypt credentials with an Android Keystore key and store no OAuth client secret.
 6. Rotate refresh tokens; reject replay, missing verified email, invitation mismatch, and unsupported identity methods.

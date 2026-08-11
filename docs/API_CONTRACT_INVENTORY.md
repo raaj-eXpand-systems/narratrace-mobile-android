@@ -145,7 +145,7 @@ Body (`AdmissionInput`, `lib/mobileAdmission.ts`):
 | `platform` | `'ios'` \| `'android'` — **`'android'` is already accepted** |
 | `appVersion` | `^\d+\.\d+\.\d+([+-]…)?$` |
 | `osVersion?` | ≤ 40 chars |
-| `mfaCode` | **mandatory** |
+| `mfaCode` | required only when the customer enabled authenticator protection |
 
 **Every rejection collapses to `401 AUTHENTICATION_REQUIRED`, message "The sign-in could not
 be completed."** No cause discrimination. Android cannot show a specific error and must not
@@ -154,7 +154,7 @@ try to infer one. Causes: bad provider; non-UUID `installationId`; `appVersion` 
 verified email; email not an invitable identity (`isInvitableIdentityEmail` — Gmail/Apple
 only); missing or invalid `mfaCode`; RPC `admit_mobile_identity` returns ≠ `'admitted'`.
 
-**MFA is mandatory on every native admission.** TOTP consumed via `consume_mfa_totp_step`;
+**MFA follows the customer account setting on native admission.** When enabled, TOTP is consumed via `consume_mfa_totp_step`;
 recovery codes accepted and atomically removed.
 
 Apple hashes the nonce (`sha256` hex) before assertion verification; Google passes it raw.

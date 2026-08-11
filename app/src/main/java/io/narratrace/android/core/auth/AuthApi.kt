@@ -34,8 +34,8 @@ internal data class NativeAdmissionRequest(
     val platform: String = "android",
     val appVersion: String,
     val osVersion: String? = null,
-    /** Mandatory. Every native admission requires an authenticator code. */
-    val mfaCode: String,
+    /** Required only when the customer enabled authenticator protection. */
+    val mfaCode: String? = null,
 )
 
 @Serializable
@@ -94,7 +94,7 @@ class AuthApi(private val client: NarratraceApiClient) {
         nonce: String,
         installationId: String,
         appVersion: String,
-        mfaCode: String,
+        mfaCode: String? = null,
         osVersion: String? = null,
         inviteCode: String? = null,
         inviteHandoff: String? = null,
