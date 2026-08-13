@@ -1,3 +1,4 @@
+import java.io.File
 import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -48,6 +49,20 @@ val googleServerClientId: String = run {
         .getProperty("narratrace.googleServerClientId")
         .orEmpty()
 }
+fun configured(name: String, property: String): String = System.getenv(name).orEmpty().ifBlank {
+    val file = rootProject.file("local.properties"); if (!file.exists()) "" else Properties().apply { file.inputStream().use(::load) }.getProperty(property).orEmpty()
+}
+val firebaseApiKey = configured("NARRATRACE_FIREBASE_API_KEY", "narratrace.firebaseApiKey")
+val firebaseApplicationId = configured("NARRATRACE_FIREBASE_APPLICATION_ID", "narratrace.firebaseApplicationId")
+val firebaseProjectId = configured("NARRATRACE_FIREBASE_PROJECT_ID", "narratrace.firebaseProjectId")
+val firebaseSenderId = configured("NARRATRACE_FIREBASE_SENDER_ID", "narratrace.firebaseSenderId")
+val releaseKeystorePath = System.getenv("NARRATRACE_ANDROID_KEYSTORE_PATH").orEmpty()
+val releaseKeystorePassword = System.getenv("NARRATRACE_ANDROID_KEYSTORE_PASSWORD").orEmpty()
+val releaseKeyAlias = System.getenv("NARRATRACE_ANDROID_KEY_ALIAS").orEmpty()
+val releaseKeyPassword = System.getenv("NARRATRACE_ANDROID_KEY_PASSWORD").orEmpty()
+val releaseVersionCode = System.getenv("NARRATRACE_ANDROID_VERSION_CODE").orEmpty().toIntOrNull() ?: 1
+val releaseVersionName = System.getenv("NARRATRACE_ANDROID_VERSION_NAME").orEmpty().ifBlank { "0.1.0" }
+val hasReleaseSigning = listOf(releaseKeystorePath, releaseKeystorePassword, releaseKeyAlias, releaseKeyPassword).all(String::isNotBlank)
 
 android {
     namespace = "io.narratrace.android"
@@ -57,21 +72,38 @@ android {
         applicationId = "io.narratrace.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = releaseVersionCode
+        versionName = releaseVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"$googleServerClientId\"")
+        buildConfigField("String", "FIREBASE_API_KEY", "\"$firebaseApiKey\"")
+        buildConfigField("String", "FIREBASE_APPLICATION_ID", "\"$firebaseApplicationId\"")
+        buildConfigField("String", "FIREBASE_PROJECT_ID", "\"$firebaseProjectId\"")
+        buildConfigField("String", "FIREBASE_SENDER_ID", "\"$firebaseSenderId\"")
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) create("release") {
+            storeFile = file(releaseKeystorePath)
+            storePassword = releaseKeystorePassword
+            keyAlias = releaseKeyAlias
+            keyPassword = releaseKeyPassword
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+            enableV4Signing = true
+        }
+    }
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
         }
         release {
+            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
             // A release build must never ship pointed at a non-production or
             // cleartext origin. Fail the build rather than discover it in the store.
             check(apiBaseUrl.isBlank() || apiBaseUrl.startsWith("https://")) {
@@ -104,6 +136,32 @@ android {
     )
 }
 
+tasks.register("verifyStoreRelease") {
+    group = "verification"
+    description = "Fails unless every Doppler-provided production and signing input is present."
+    inputs.property("apiBaseUrl", apiBaseUrl)
+    inputs.property("googleServerClientId", googleServerClientId)
+    inputs.property("firebaseApiKeyPresent", firebaseApiKey.isNotBlank())
+    inputs.property("firebaseApplicationIdPresent", firebaseApplicationId.isNotBlank())
+    inputs.property("firebaseProjectIdPresent", firebaseProjectId.isNotBlank())
+    inputs.property("firebaseSenderIdPresent", firebaseSenderId.isNotBlank())
+    inputs.property("releaseKeystorePath", releaseKeystorePath)
+    inputs.property("releaseKeystorePasswordPresent", releaseKeystorePassword.isNotBlank())
+    inputs.property("releaseKeyAliasPresent", releaseKeyAlias.isNotBlank())
+    inputs.property("releaseKeyPasswordPresent", releaseKeyPassword.isNotBlank())
+    inputs.property("releaseVersionCode", releaseVersionCode)
+    inputs.property("releaseVersionName", releaseVersionName)
+    doLast {
+        val configured = inputs.properties
+        check((configured["apiBaseUrl"] as String).startsWith("https://")) { "NARRATRACE_API_BASE_URL must be a production HTTPS origin." }
+        check((configured["googleServerClientId"] as String).isNotBlank()) { "NARRATRACE_GOOGLE_SERVER_CLIENT_ID is required." }
+        check(listOf("firebaseApiKeyPresent", "firebaseApplicationIdPresent", "firebaseProjectIdPresent", "firebaseSenderIdPresent").all { configured[it] == true }) { "All NARRATRACE_FIREBASE_* values are required." }
+        check(listOf("releaseKeystorePasswordPresent", "releaseKeyAliasPresent", "releaseKeyPasswordPresent").all { configured[it] == true } && (configured["releaseKeystorePath"] as String).isNotBlank()) { "All NARRATRACE_ANDROID_KEY* signing values are required." }
+        check(File(configured["releaseKeystorePath"] as String).isFile) { "The configured Android keystore file does not exist." }
+        check((configured["releaseVersionCode"] as Int) > 0 && (configured["releaseVersionName"] as String).isNotBlank()) { "A positive version code and version name are required." }
+    }
+}
+
 kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_17)
@@ -125,6 +183,8 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
+    implementation("androidx.work:work-runtime-ktx:2.10.5")
+    implementation("com.google.firebase:firebase-messaging:25.0.1")
     implementation("androidx.navigation:navigation-compose:2.9.6")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")

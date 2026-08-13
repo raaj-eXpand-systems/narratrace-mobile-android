@@ -108,6 +108,17 @@ class SessionManager(
         }
     }
 
+    /** Refresh once after the server rejects a token that looked valid locally. */
+    suspend fun recoverFromUnauthorized(rejectedAccessToken: String): TokenLease =
+        refreshMutex.withLock {
+            val latest = (_state.value as? AuthState.Authenticated)?.session
+                ?: return@withLock TokenLease.SignedOut
+            if (latest.accessToken != rejectedAccessToken) {
+                return@withLock TokenLease.Valid(latest.accessToken)
+            }
+            rotate(latest)
+        }
+
     /**
      * Exchange a rotation. Called only while holding [refreshMutex].
      *

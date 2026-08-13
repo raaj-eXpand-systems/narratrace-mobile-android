@@ -69,26 +69,16 @@ internal data class RevokeRequest(val scope: String)
 @Serializable
 data class RevokeResult(val revoked: Boolean, val scope: String)
 
-class AuthApi(private val client: NarratraceApiClient) {
+@Serializable
+data class AuthenticatedAccount(
+    val accountId: String,
+    val providerSubject: String,
+    val email: String,
+    val authenticationMethod: String,
+)
 
-    /**
-     * A one-time server nonce, valid five minutes.
-     *
-     * The server stores only its SHA-256 hash, and the nonce must be echoed
-     * verbatim inside the Google ID token's `nonce` claim. This is what makes an
-     * intercepted token useless elsewhere, so it is fetched fresh for every attempt
-     * and never cached.
-     */
-    suspend fun challenge(): ApiResult<AuthChallenge> =
-        client.post("/api/v1/auth/challenge", null, serializer<AuthChallenge>())
-
-    /**
-     * Exchange a Google ID token for a Narratrace session.
-     *
-     * Every refusal returns 401 with copy chosen by the server; the client must not
-     * infer a cause beyond what the message says. See the denial table in
-     * narratrace-app/pages/api/v1/auth/native.ts.
-     */
+interface AuthenticationGateway {
+    suspend fun challenge(): ApiResult<AuthChallenge>
     suspend fun admit(
         idToken: String,
         nonce: String,
@@ -98,6 +88,44 @@ class AuthApi(private val client: NarratraceApiClient) {
         osVersion: String? = null,
         inviteCode: String? = null,
         inviteHandoff: String? = null,
+    ): ApiResult<TokenPair>
+    suspend fun me(accessToken: String): ApiResult<AuthenticatedAccount>
+}
+
+interface SecurityGateway {
+    suspend fun sessions(accessToken: String): ApiResult<List<RemoteSession>>
+    suspend fun revoke(accessToken: String, scope: RevokeScope): ApiResult<RevokeResult>
+}
+
+class AuthApi(private val client: NarratraceApiClient) : AuthenticationGateway, SecurityGateway {
+
+    /**
+     * A one-time server nonce, valid five minutes.
+     *
+     * The server stores only its SHA-256 hash, and the nonce must be echoed
+     * verbatim inside the Google ID token's `nonce` claim. This is what makes an
+     * intercepted token useless elsewhere, so it is fetched fresh for every attempt
+     * and never cached.
+     */
+    override suspend fun challenge(): ApiResult<AuthChallenge> =
+        client.post("/api/v1/auth/challenge", null, serializer<AuthChallenge>())
+
+    /**
+     * Exchange a Google ID token for a Narratrace session.
+     *
+     * Every refusal returns 401 with copy chosen by the server; the client must not
+     * infer a cause beyond what the message says. See the denial table in
+     * narratrace-app/pages/api/v1/auth/native.ts.
+     */
+    override suspend fun admit(
+        idToken: String,
+        nonce: String,
+        installationId: String,
+        appVersion: String,
+        mfaCode: String?,
+        osVersion: String?,
+        inviteCode: String?,
+        inviteHandoff: String?,
     ): ApiResult<TokenPair> {
         val body = NarratraceJson.encodeToString(
             NativeAdmissionRequest(
@@ -114,6 +142,9 @@ class AuthApi(private val client: NarratraceApiClient) {
         return client.post("/api/v1/auth/native", body, serializer<TokenPair>())
     }
 
+    override suspend fun me(accessToken: String): ApiResult<AuthenticatedAccount> =
+        client.get("/api/v1/me", serializer<AuthenticatedAccount>(), accessToken)
+
     /**
      * Rotate the session.
      *
@@ -126,7 +157,7 @@ class AuthApi(private val client: NarratraceApiClient) {
         return client.post("/api/v1/auth/refresh", body, serializer<TokenPair>())
     }
 
-    suspend fun sessions(accessToken: String): ApiResult<List<RemoteSession>> =
+    override suspend fun sessions(accessToken: String): ApiResult<List<RemoteSession>> =
         client.get("/api/v1/auth/sessions", serializer<SessionList>(), accessToken)
             .map { it.sessions }
 
@@ -136,7 +167,7 @@ class AuthApi(private val client: NarratraceApiClient) {
      * DELETE with a body — unusual, but that is the contract. Sending this as POST
      * would create a session rather than revoke one.
      */
-    suspend fun revoke(accessToken: String, scope: RevokeScope): ApiResult<RevokeResult> {
+    override suspend fun revoke(accessToken: String, scope: RevokeScope): ApiResult<RevokeResult> {
         val body = NarratraceJson.encodeToString(RevokeRequest(scope.wire))
         return client.delete("/api/v1/auth/sessions", serializer<RevokeResult>(), accessToken, body)
     }

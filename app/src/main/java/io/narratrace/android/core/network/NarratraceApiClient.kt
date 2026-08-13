@@ -13,8 +13,8 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.util.Locale
 import java.util.UUID
@@ -58,6 +58,7 @@ class NarratraceApiClient(
     private val httpClient: OkHttpClient = defaultHttpClient(),
     private val json: Json = NarratraceJson,
     private val requestIdFactory: () -> String = { UUID.randomUUID().toString().lowercase(Locale.US) },
+    private val supportReferenceSink: (String) -> Unit = {},
 ) {
 
     /**
@@ -89,6 +90,85 @@ class NarratraceApiClient(
         idempotencyKey: String? = null,
     ): ApiResult<T> = execute(path, "POST", body, serializer, bearer, idempotencyKey)
 
+    suspend fun <T> postBytes(
+        path: String,
+        bytes: ByteArray,
+        mimeType: String,
+        serializer: KSerializer<T>,
+        bearer: String,
+        idempotencyKey: String,
+    ): ApiResult<T> = executeRequest(
+        path = path,
+        method = "POST",
+        requestBody = bytes.toRequestBody(mimeType.toMediaType()),
+        serializer = serializer,
+        bearer = bearer,
+        idempotencyKey = idempotencyKey,
+    )
+
+    /** Uploads only to the signed Supabase storage endpoint returned by our API. */
+    suspend fun putSignedStorage(url: String, bytes: ByteArray, mimeType: String): Boolean =
+        withContext(Dispatchers.IO) {
+            val parsed = url.toHttpUrlOrNull() ?: return@withContext false
+            if (parsed.scheme != "https" || parsed.username.isNotEmpty() || parsed.password.isNotEmpty() ||
+                (parsed.port != 443) || !parsed.host.endsWith(".supabase.co") ||
+                !parsed.encodedPath.startsWith("/storage/v1/upload/")
+            ) return@withContext false
+            val request = Request.Builder().url(parsed).put(bytes.toRequestBody(mimeType.toMediaType()))
+                .header("Content-Type", mimeType).header("Cache-Control", "no-store").build()
+            runCatching { httpClient.newCall(request).await().use { it.isSuccessful } }.getOrDefault(false)
+        }
+
+    suspend fun getSignedStorage(url: String, maximumBytes: Int = 50 * 1024 * 1024): ByteArray? =
+        withContext(Dispatchers.IO) {
+            val parsed = url.toHttpUrlOrNull() ?: return@withContext null
+            if (parsed.scheme != "https" || parsed.username.isNotEmpty() || parsed.password.isNotEmpty() ||
+                parsed.port != 443 || !parsed.host.endsWith(".supabase.co") ||
+                !parsed.encodedPath.startsWith("/storage/v1/object/sign/")
+            ) return@withContext null
+            val request = Request.Builder().url(parsed).get().header("Cache-Control", "no-store").build()
+            runCatching { httpClient.newCall(request).await().use { response ->
+                if (!response.isSuccessful) return@use null
+                val length = response.body?.contentLength() ?: return@use null
+                if (length !in 0..maximumBytes.toLong()) return@use null
+                response.body?.bytes()?.takeIf { it.size <= maximumBytes }
+            } }.getOrNull()
+        }
+
+    suspend fun uploadTus(url: String, bytes: ByteArray): Boolean = withContext(Dispatchers.IO) {
+        uploadTusInternal(url, bytes.size) { offset, size -> bytes.copyOfRange(offset, minOf(bytes.size, offset + size)) }
+    }
+
+    suspend fun uploadTus(url: String, totalBytes: Int, reader: (Int, Int) -> ByteArray?): Boolean = withContext(Dispatchers.IO) {
+        uploadTusInternal(url, totalBytes, reader)
+    }
+
+    private suspend fun uploadTusInternal(url: String, totalBytes: Int, reader: (Int, Int) -> ByteArray?): Boolean {
+        val parsed = url.toHttpUrlOrNull() ?: return false
+        val allowed = parsed.scheme == "https" && parsed.username.isEmpty() && parsed.password.isEmpty() &&
+            parsed.port == 443 && (parsed.host == "upload.videodelivery.net" || parsed.host.endsWith(".upload.videodelivery.net") ||
+            parsed.host == "upload.cloudflarestream.com" || parsed.host.endsWith(".upload.cloudflarestream.com"))
+        if (!allowed) return false
+        var offset = runCatching {
+            httpClient.newCall(Request.Builder().url(parsed).head().header("Tus-Resumable", "1.0.0").build()).await().use {
+                if (!it.isSuccessful) return@use null
+                it.header("Upload-Offset")?.toIntOrNull()
+            }
+        }.getOrNull() ?: return false
+        while (offset < totalBytes) {
+            val bytes = reader(offset, minOf(5 * 1024 * 1024, totalBytes - offset)) ?: return false
+            val chunk = bytes.toRequestBody("application/offset+octet-stream".toMediaType())
+            val next = runCatching { httpClient.newCall(Request.Builder().url(parsed).patch(chunk)
+                .header("Tus-Resumable", "1.0.0").header("Upload-Offset", offset.toString()).build()).await().use {
+                if (!it.isSuccessful) return@use null
+                it.header("Upload-Offset")?.toIntOrNull()
+            } }.getOrNull() ?: return false
+            if (next <= offset || next > totalBytes) return false
+            offset = next
+        }
+        return true
+    }
+
     suspend fun <T> patch(
         path: String,
         body: String?,
@@ -114,6 +194,22 @@ class NarratraceApiClient(
         serializer: KSerializer<T>,
         bearer: String?,
         idempotencyKey: String?,
+    ): ApiResult<T> {
+        val requestBody: RequestBody? = when {
+            body != null -> body.toRequestBody(JSON_MEDIA_TYPE)
+            method == "POST" || method == "PATCH" -> "".toRequestBody(JSON_MEDIA_TYPE)
+            else -> null
+        }
+        return executeRequest(path, method, requestBody, serializer, bearer, idempotencyKey)
+    }
+
+    private suspend fun <T> executeRequest(
+        path: String,
+        method: String,
+        requestBody: RequestBody?,
+        serializer: KSerializer<T>,
+        bearer: String?,
+        idempotencyKey: String?,
     ): ApiResult<T> = withContext(Dispatchers.IO) {
         val url = resolve(path)
             ?: return@withContext ApiResult.Unreadable(
@@ -121,12 +217,6 @@ class NarratraceApiClient(
             )
 
         val requestId = requestIdFactory()
-        val requestBody: RequestBody? = when {
-            body != null -> body.toRequestBody(JSON_MEDIA_TYPE)
-            method == "POST" || method == "PATCH" -> "".toRequestBody(JSON_MEDIA_TYPE)
-            else -> null
-        }
-
         val request = Request.Builder()
             .url(url)
             .method(method, requestBody)
@@ -158,6 +248,7 @@ class NarratraceApiClient(
         val headerSupportId = response.header(HEADER_SUPPORT_ID)
             ?: response.header(HEADER_REQUEST_ID)
             ?: ""
+        fun capture(value: String): String = value.also { if (it.matches(Regex("^[A-Za-z0-9_-]{8,80}$"))) supportReferenceSink(it) }
 
         if (response.isSuccessful) {
             val envelope = runCatching {
@@ -169,12 +260,12 @@ class NarratraceApiClient(
                 return ApiResult.Unreadable(
                     message = "This version of Narratrace is out of date. Update the app to continue.",
                     reason = "Unsupported API version ${envelope.meta.apiVersion}.",
-                    supportReference = envelope.meta.supportReference.ifBlank { headerSupportId },
+                    supportReference = capture(envelope.meta.supportReference.ifBlank { headerSupportId }),
                 )
             }
             return ApiResult.Success(
                 value = envelope.data,
-                supportReference = envelope.meta.supportReference.ifBlank { headerSupportId },
+                supportReference = capture(envelope.meta.supportReference.ifBlank { headerSupportId }),
             )
         }
 
@@ -184,6 +275,7 @@ class NarratraceApiClient(
 
         val supportReference = failure?.meta?.supportReference?.ifBlank { headerSupportId }
             ?: headerSupportId
+        capture(supportReference)
 
         if (failure == null) {
             return ApiResult.Unreadable(

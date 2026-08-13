@@ -95,6 +95,33 @@ class SessionManagerTest {
     }
 
     @Test
+    fun `server rejection forces exactly one token rotation`() = runTest {
+        val calls = AtomicInteger(0)
+        val manager = manager(session(expiresInMinutes = 10)) {
+            calls.incrementAndGet()
+            ApiResult.Success(TokenPair("ntm_at_recovered", "ntm_rt_recovered", instant(now + 900_000)), "s")
+        }
+
+        val lease = manager.recoverFromUnauthorized("ntm_at_current")
+        assertEquals("ntm_at_recovered", (lease as TokenLease.Valid).accessToken)
+        assertEquals(1, calls.get())
+    }
+
+    @Test
+    fun `queued rejection reuses a token another request already rotated`() = runTest {
+        val calls = AtomicInteger(0)
+        val manager = manager(session(expiresInMinutes = 10)) {
+            calls.incrementAndGet()
+            ApiResult.Success(TokenPair("ntm_at_recovered", "ntm_rt_recovered", instant(now + 900_000)), "s")
+        }
+
+        manager.recoverFromUnauthorized("ntm_at_current")
+        val lease = manager.recoverFromUnauthorized("ntm_at_current")
+        assertEquals("ntm_at_recovered", (lease as TokenLease.Valid).accessToken)
+        assertEquals(1, calls.get())
+    }
+
+    @Test
     fun `an inactive session locks without discarding the account`() = runTest {
         val manager = manager(session(lastActiveMinutesAgo = 31)) {
             ApiResult.Success(TokenPair("a", "r", instant(now)), "s")

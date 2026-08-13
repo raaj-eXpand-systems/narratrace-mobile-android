@@ -5,6 +5,9 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -15,6 +18,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Narratrace"
         android:usesCleartextTraffic="false">
+        <service android:name=".core.settings.NarratraceMessagingService" android:exported="false">
+            <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>
+        </service>
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -23,7 +29,13 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="www.narratrace.io" android:path="/family/accept" />
+                <data android:scheme="https" android:host="www.narratrace.io" android:path="/circles/accept" />
+            </intent-filter>
         </activity>
     </application>
 </manifest>
-
