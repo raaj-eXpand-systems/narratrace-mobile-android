@@ -510,13 +510,15 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
     }
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) registerPush() else message = "Notification permission was not granted." }
     LaunchedEffect(Unit) { profile = container.settingsRepository.profile(); preferences = container.settingsRepository.preferences(); (profile as? FeatureResult.Success)?.value?.profile?.let { name = it.displayName; birthYear = it.birthYear?.toString().orEmpty(); language = it.preferredLanguage } }
+    val latestBirthYear = java.time.Year.now().value - 5
+    val birthYearValid = birthYear.isEmpty() || (birthYear.length == 4 && birthYear.toIntOrNull()?.let { it in 1900..latestBirthYear } == true)
     BackHandler(onBack = close)
     LazyColumn(modifier.fillMaxSize().imePadding(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to account") }; Text("Profile and preferences", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) } }
         item { OutlinedTextField(name, { name = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Display name") }, singleLine = true) }
         item { OutlinedTextField(birthYear, { birthYear = it.filter(Char::isDigit).take(4) }, Modifier.fillMaxWidth(), label = { Text("Birth year (optional)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true) }
         item { Button(onClick = { language = if (language == "en") "hi" else "en" }, Modifier.fillMaxWidth()) { Text("Language: ${if (language == "hi") "हिन्दी" else "English"}") } }
-        item { Button(onClick = { busy = true; scope.launch { val saved = container.settingsRepository.updateProfile(name, birthYear.toIntOrNull(), language); message = if (saved is FeatureResult.Success) "Profile saved." else (saved as? FeatureResult.Unavailable)?.message; busy = false } }, enabled = !busy && name.trim().isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("Save profile") } }
+        item { Button(onClick = { busy = true; scope.launch { val saved = container.settingsRepository.updateProfile(name, birthYear.toIntOrNull(), language); message = if (saved is FeatureResult.Success) "Profile saved." else (saved as? FeatureResult.Unavailable)?.message; busy = false } }, enabled = !busy && name.trim().isNotEmpty() && birthYearValid, modifier = Modifier.fillMaxWidth()) { Text("Save profile") } }
         item { Text("App appearance", style = MaterialTheme.typography.titleLarge) }
         items(NarratraceAppearance.entries, key = { it.name }) { appearance -> Button(onClick = { if (container.appearanceStore.save(appearance)) (context as? Activity)?.recreate() }, Modifier.fillMaxWidth()) { Text(appearance.name.replace("UpcomingPreview", "Narratrace preview") + if (container.appearanceStore.load() == appearance) " ✓" else "") } }
         item { Text("Notification preferences", style = MaterialTheme.typography.titleLarge) }
