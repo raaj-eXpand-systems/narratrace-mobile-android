@@ -499,6 +499,7 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
     val context = LocalContext.current; val scope = rememberCoroutineScope()
     var profile by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.settings.ProfileResponse>?>(null) }
     var preferences by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.settings.PreferencesResponse>?>(null) }
+    var mediaAiPreferences by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.settings.MediaAiPreferencesResponse>?>(null) }
     var name by remember { mutableStateOf("") }; var birthYear by remember { mutableStateOf("") }; var language by remember { mutableStateOf("en") }
     var busy by remember { mutableStateOf(false) }; var message by remember { mutableStateOf<String?>(null) }
     fun registerPush() {
@@ -509,7 +510,7 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
             .addOnFailureListener { message = "Push registration is unavailable."; busy = false }
     }
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) registerPush() else message = "Notification permission was not granted." }
-    LaunchedEffect(Unit) { profile = container.settingsRepository.profile(); preferences = container.settingsRepository.preferences(); (profile as? FeatureResult.Success)?.value?.profile?.let { name = it.displayName; birthYear = it.birthYear?.toString().orEmpty(); language = it.preferredLanguage } }
+    LaunchedEffect(Unit) { profile = container.settingsRepository.profile(); preferences = container.settingsRepository.preferences(); mediaAiPreferences = container.settingsRepository.mediaAiPreferences(); (profile as? FeatureResult.Success)?.value?.profile?.let { name = it.displayName; birthYear = it.birthYear?.toString().orEmpty(); language = it.preferredLanguage } }
     val latestBirthYear = java.time.Year.now().value - 5
     val birthYearValid = birthYear.isEmpty() || (birthYear.length == 4 && birthYear.toIntOrNull()?.let { it in 1900..latestBirthYear } == true)
     BackHandler(onBack = close)
@@ -523,6 +524,12 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
         items(listOf(NarratraceAppearance.System, NarratraceAppearance.Light, NarratraceAppearance.Dark), key = { it.name }) { appearance -> Button(onClick = { if (container.appearanceStore.save(appearance)) (context as? Activity)?.recreate() }, Modifier.fillMaxWidth()) { Text(appearance.name + if (container.appearanceStore.load() == appearance) " ✓" else "") } }
         item { Text("Upcoming themes", style = MaterialTheme.typography.titleMedium) }
         items(listOf(NarratraceAppearance.UpcomingPreview, NarratraceAppearance.ChaiLatte), key = { it.name }) { appearance -> Button(onClick = { if (container.appearanceStore.save(appearance)) (context as? Activity)?.recreate() }, Modifier.fillMaxWidth()) { Text(appearance.name.replace("UpcomingPreview", "Narratrace Blue").replace("ChaiLatte", "Chai Latte") + if (container.appearanceStore.load() == appearance) " ✓" else "") } }
+        item { Text("Nia media insights", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Choose separately whether Nia may process future photos and videos. Both choices are on by default; turning one off keeps that media usable without sending it for AI analysis.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        (mediaAiPreferences as? FeatureResult.Success)?.value?.preferences?.let { prefs ->
+            val choices = listOf("photo_ai_insights_enabled" to ("Photo insights" to prefs.photoAiInsightsEnabled), "video_ai_insights_enabled" to ("Video insights" to prefs.videoAiInsightsEnabled))
+            items(choices, key = { it.first }) { choice -> Button(onClick = { busy = true; scope.launch { mediaAiPreferences = container.settingsRepository.updateMediaAiPreference(choice.first, !choice.second.second); busy = false } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(choice.second.first + if (choice.second.second) " ✓" else "") } }
+        }
         item { Text("Notification preferences", style = MaterialTheme.typography.titleLarge) }
         (preferences as? FeatureResult.Success)?.value?.preferences?.let { prefs ->
             val choices = listOf("processing_ready" to ("Processing ready" to prefs.processingReady), "invitations" to ("Invitations" to prefs.invitations), "letters" to ("Letters" to prefs.letters), "trial_and_billing" to ("Trial and billing" to prefs.trialAndBilling), "product_guidance" to ("Product guidance" to prefs.productGuidance))
