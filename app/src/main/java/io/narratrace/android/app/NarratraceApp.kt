@@ -196,6 +196,12 @@ private fun SignInScreen(container: AppContainer, returning: Boolean) {
             style = MaterialTheme.typography.headlineLarge,
         )
         Text(
+            text = "PUBLIC BETA",
+            modifier = Modifier.padding(top = 12.dp),
+            color = MaterialTheme.colorScheme.primary,
+            style = MaterialTheme.typography.labelLarge,
+        )
+        Text(
             text = if (returning) {
                 "Sign in again to unlock your private Narratrace account on this device."
             } else {
@@ -205,6 +211,14 @@ private fun SignInScreen(container: AppContainer, returning: Boolean) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyLarge,
         )
+        if (!returning) {
+            Text(
+                text = "Narratrace is still evolving. Features may change or occasionally behave unexpectedly; Feedback & support is available after sign-in.",
+                modifier = Modifier.padding(top = 12.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
         OutlinedTextField(
             value = mfaCode,
             onValueChange = { value ->
@@ -516,6 +530,8 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
     BackHandler(onBack = close)
     LazyColumn(modifier.fillMaxSize().imePadding(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to account") }; Text("Profile and preferences", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) } }
+        item { Text("Public Beta", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium) }
+        item { Text("Narratrace is still evolving. Features may change or occasionally behave unexpectedly; use Feedback & support to tell us what happened.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { OutlinedTextField(name, { name = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Display name") }, singleLine = true) }
         item { OutlinedTextField(birthYear, { birthYear = it.filter(Char::isDigit).take(4) }, Modifier.fillMaxWidth(), label = { Text("Birth year (optional)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true) }
         item { Button(onClick = { language = if (language == "en") "hi" else "en" }, Modifier.fillMaxWidth()) { Text("Language: ${if (language == "hi") "हिन्दी" else "English"}") } }
