@@ -49,11 +49,22 @@ private val UpcomingColors = lightColorScheme(
     error = Color(0xFFD92D20),
 )
 
+private val ChaiLatteColors = lightColorScheme(
+    primary = Color(0xFF8C2F43), onPrimary = Color.White,
+    primaryContainer = Color(0xFFF3C3C9), onPrimaryContainer = Color(0xFF351017),
+    secondary = Color(0xFF4E644B), onSecondary = Color.White,
+    tertiary = Color(0xFFA85E13), background = Color(0xFFF3D4A5),
+    surface = Color(0xFFFFF1D4), surfaceVariant = Color(0xFFE9BE80),
+    onSurface = Color(0xFF201C18), onSurfaceVariant = Color(0xFF5E4B3A),
+    outline = Color(0xFF766353), error = Color(0xFF9F293B),
+)
+
 enum class NarratraceAppearance {
     System,
     Light,
     Dark,
     UpcomingPreview,
+    ChaiLatte,
 }
 
 @Composable
@@ -67,6 +78,7 @@ fun NarratraceTheme(
         NarratraceAppearance.Light -> LightColors
         NarratraceAppearance.Dark -> DarkColors
         NarratraceAppearance.UpcomingPreview -> UpcomingColors
+        NarratraceAppearance.ChaiLatte -> ChaiLatteColors
     }
     MaterialTheme(
         colorScheme = colors,
