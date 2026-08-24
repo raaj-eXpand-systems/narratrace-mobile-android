@@ -1919,12 +1919,11 @@ private fun String?.planLabel(): String = when (this) {
 }
 
 private fun String.statusLabel(): String = when (this) {
-    "trial_active" -> "Trial active"
-    "trial_extended" -> "Extended trial active"
-    "trial_expired" -> "Trial ended"
+    "trial_active", "trial_extended", "trial_expired" -> "Free guided interview"
     "subscription_active" -> "Active"
     "subscription_grace" -> "Payment grace period"
     "lapsed" -> "Archive only"
     "vault_only" -> "Vault access"
+    "invited" -> "Invitation accepted"
     else -> "Access unavailable"
 }
