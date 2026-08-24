@@ -893,6 +893,8 @@ private fun AudioCaptureScreen(
     modifier: Modifier,
     interviewId: String?,
     maxSeconds: Int?,
+    assisted: Boolean = false,
+    question: String? = null,
     close: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -913,13 +915,18 @@ private fun AudioCaptureScreen(
             remainingSeconds -= 1
         }
     }
-    BackHandler(enabled = !busy) { recorder.discard(); close() }
+    BackHandler(enabled = !busy && !recording) { recorder.discard(); close() }
     Column(modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = close, enabled = !busy) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Capture") }
-            Text(if (interviewId == null) "Record audio" else "Audio response", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
+        if (!recording) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = close, enabled = !busy) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Capture") }
+                Text(if (interviewId == null) "Record audio" else "Audio response", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
+            }
         }
-        Text("The recording stays private and encrypted until Narratrace verifies durable preservation.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (assisted && !question.isNullOrBlank()) {
+            Text(question, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
+        }
+        if (!assisted) Text("The recording stays private and encrypted until Narratrace verifies durable preservation.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Button(
             onClick = {
                 if (!recording) {
@@ -945,7 +952,7 @@ private fun AudioCaptureScreen(
                         }
                     }
                 }
-            }, enabled = !busy, modifier = Modifier.fillMaxWidth(),
+            }, enabled = !busy, modifier = Modifier.fillMaxWidth().height(if (assisted) 80.dp else 48.dp),
         ) { Text(if (recording) "Stop and preserve" else "Start recording") }
         if (recording) Text("%02d:%02d remaining".format(remainingSeconds / 60, remainingSeconds % 60), style = MaterialTheme.typography.bodySmall)
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -1026,6 +1033,8 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
     var confirmDelete by remember { mutableStateOf(false) }
     var confirmNarrativeAgreement by remember { mutableStateOf(false) }
     var videoMessage by remember { mutableStateOf<String?>(null) }
+    val modePreferences = remember(context) { context.getSharedPreferences("interview-modes.v1", android.content.Context.MODE_PRIVATE) }
+    var recordingMode by remember(summary.id) { mutableStateOf(modePreferences.getString(summary.id, null)) }
     val scope = rememberCoroutineScope()
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) scope.launch {
@@ -1060,7 +1069,18 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
         confirmButton = { Button(onClick = { confirmNarrativeAgreement = false; sending = true; scope.launch { container.mediaRepository.narrative(summary.id, true); sending = false; refresh++ } }) { Text("I agree — create faithful story") } },
         dismissButton = { TextButton(onClick = { confirmNarrativeAgreement = false }) { Text("Cancel") } },
     )
-    if (audio) { AudioCaptureScreen(container, modifier, summary.id, (capacity as? FeatureResult.Success)?.value?.audioMaxSeconds) { audio = false; refresh++ }; return }
+    if (audio) {
+        val currentQuestion = (result as? FeatureResult.Success)?.value?.messages?.lastOrNull { it.role == "assistant" }?.content
+        AudioCaptureScreen(
+            container,
+            modifier,
+            summary.id,
+            (capacity as? FeatureResult.Success)?.value?.audioMaxSeconds,
+            assisted = recordingMode == "together",
+            question = currentQuestion,
+        ) { audio = false; refresh++ }
+        return
+    }
     BackHandler(onBack = close)
     LazyColumn(modifier.fillMaxSize().imePadding(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1073,31 +1093,46 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify this interview.", color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Unavailable -> item { Text(loaded.message, color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Success -> {
-                items(loaded.value.messages, key = { it.id }) { message -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
+                if (loaded.value.interview.status != "complete") item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("How are you recording today?", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+                        Text("Choose the view that feels comfortable. You can switch between answers without losing a recording.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { recordingMode = "together"; modePreferences.edit().putString(summary.id, "together").apply() }, modifier = Modifier.weight(1f)) { Text("Someone else is here") }
+                            Button(onClick = { recordingMode = "self"; modePreferences.edit().putString(summary.id, "self").apply() }, modifier = Modifier.weight(1f)) { Text("Recording myself") }
+                        }
+                    }
+                }
+                val visibleMessages = if (recordingMode == "together") {
+                    listOfNotNull(loaded.value.messages.lastOrNull { it.role == "assistant" })
+                } else loaded.value.messages
+                items(visibleMessages, key = { it.id }) { message -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(if (recordingMode == "together") 20.dp else 12.dp)) {
                     Text(if (message.role == "assistant") "Companion" else "You", style = MaterialTheme.typography.labelMedium)
-                    Text(message.content)
+                    Text(message.content, style = if (recordingMode == "together") MaterialTheme.typography.headlineLarge else MaterialTheme.typography.bodyLarge)
                     if (message.hasMedia) Text("Protected ${message.mediaType ?: "media"} response", style = MaterialTheme.typography.bodySmall)
                 } } }
                 if (loaded.value.interview.status != "complete") {
-                    item { OutlinedTextField(response, { response = it.take(4000); key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth(), label = { Text("Your response") }, minLines = 3) }
-                    item { Button(onClick = { sending = true; scope.launch {
-                        if (container.mediaRepository.respond(summary.id, response, key) is FeatureResult.Success) { response = ""; key = UUID.randomUUID().toString(); refresh++ }
-                        sending = false
-                    } }, enabled = !sending && response.trim().isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("Send response") } }
-                    item { Button(onClick = { audio = true }, enabled = (capacity as? FeatureResult.Success)?.value?.audioMaxSeconds?.let { it > 0 } == true, modifier = Modifier.fillMaxWidth()) { Text("Record audio response") } }
-                    item { Button(onClick = { videoPicker.launch("video/*") }, enabled = (capacity as? FeatureResult.Success)?.value?.videoMaxSeconds?.let { it > 0 } == true, modifier = Modifier.fillMaxWidth()) { Text("Add video response") } }
+                    if (recordingMode == "self") {
+                        item { OutlinedTextField(response, { response = it.take(4000); key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth(), label = { Text("Your response") }, minLines = 3) }
+                        item { Button(onClick = { sending = true; scope.launch {
+                            if (container.mediaRepository.respond(summary.id, response, key) is FeatureResult.Success) { response = ""; key = UUID.randomUUID().toString(); refresh++ }
+                            sending = false
+                        } }, enabled = !sending && response.trim().isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("Send response") } }
+                    }
+                    if (recordingMode != null) item { Button(onClick = { audio = true }, enabled = (capacity as? FeatureResult.Success)?.value?.audioMaxSeconds?.let { it > 0 } == true, modifier = Modifier.fillMaxWidth().height(if (recordingMode == "together") 80.dp else 48.dp)) { Text("Record audio response") } }
+                    if (recordingMode == "self") item { Button(onClick = { videoPicker.launch("video/*") }, enabled = (capacity as? FeatureResult.Success)?.value?.videoMaxSeconds?.let { it > 0 } == true, modifier = Modifier.fillMaxWidth()) { Text("Add video response") } }
                     videoMessage?.let { item { Text(it, style = MaterialTheme.typography.bodySmall) } }
                     item { when (val available = capacity) {
                         is FeatureResult.Success -> Text("${available.value.remainingLabel} remains · audio up to ${available.value.audioMaxSeconds / 60}m ${available.value.audioMaxSeconds % 60}s. Capacity is checked again before transfer.", style = MaterialTheme.typography.bodySmall)
                         else -> Text("Recording capacity is unavailable. Refresh before recording audio.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     } }
-                    item { Button(onClick = { sending = true; scope.launch { container.mediaRepository.status(summary.id, "complete"); sending = false; refresh++ } },
+                    if (recordingMode == "self") item { Button(onClick = { sending = true; scope.launch { container.mediaRepository.status(summary.id, "complete"); sending = false; refresh++ } },
                         enabled = !sending && loaded.value.messages.any { it.role != "assistant" }, modifier = Modifier.fillMaxWidth()) { Text("Mark interview complete") } }
-                    if (loaded.value.messages.none { it.role != "assistant" }) item { Text("Add at least one response before marking this interview complete.", style = MaterialTheme.typography.bodySmall) }
+                    if (recordingMode == "self" && loaded.value.messages.none { it.role != "assistant" }) item { Text("Add at least one response before marking this interview complete.", style = MaterialTheme.typography.bodySmall) }
                 } else item { Button(onClick = { sending = true; scope.launch { container.mediaRepository.status(summary.id, "active"); sending = false; refresh++ } }, modifier = Modifier.fillMaxWidth()) { Text("Reopen interview") } }
                 loaded.value.narrative?.let { narrative -> item { Text("Narrative", style = MaterialTheme.typography.titleLarge) }; item { Text(narrative) } }
-                item { Text("Interview coverage", style = MaterialTheme.typography.titleLarge) }
-                item { when (val value = insights) {
+                if (recordingMode != "together") item { Text("Interview coverage", style = MaterialTheme.typography.titleLarge) }
+                if (recordingMode != "together") item { when (val value = insights) {
                     is FeatureResult.Success -> Text(if (value.value.covered.isEmpty()) "Coverage grows as the interview develops." else value.value.covered.joinToString(" · "))
                     else -> Text("Coverage is temporarily unavailable.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } }
@@ -1115,7 +1150,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
                         item { Text("A public link exposes only this completed narrative. The transcript stays private, and the link can be revoked.", style = MaterialTheme.typography.bodySmall) }
                     }
                 }
-                item { TextButton(onClick = { confirmDelete = true }, modifier = Modifier.fillMaxWidth()) { Text("Delete interview", color = MaterialTheme.colorScheme.error) } }
+                if (recordingMode != "together") item { TextButton(onClick = { confirmDelete = true }, modifier = Modifier.fillMaxWidth()) { Text("Delete interview", color = MaterialTheme.colorScheme.error) } }
             }
         }
     }
