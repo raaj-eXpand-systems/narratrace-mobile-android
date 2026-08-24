@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -167,12 +168,7 @@ private fun ProtectedLoadingScreen() {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        CircularProgressIndicator()
-        Text(
-            text = "Checking your protected session…",
-            modifier = Modifier.padding(top = 16.dp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        LoadingMessage("Checking your protected session…")
     }
 }
 
@@ -252,7 +248,7 @@ private fun SignInScreen(container: AppContainer, returning: Boolean) {
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(52.dp),
             enabled = !isSigningIn && container.isApiConfigured,
         ) {
-            if (isSigningIn) CircularProgressIndicator() else Text("Continue with Google")
+            if (isSigningIn) LoadingMessage("Signing in securely…") else Text("Continue with Google")
         }
         if (!container.isApiConfigured) {
             Text(
@@ -405,7 +401,7 @@ private fun CustomerMoreScreen(
     ) {
         item { Text("Account and security", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
         when (val current = account) {
-            null -> item { CircularProgressIndicator() }
+            null -> item { LoadingMessage("Loading account and security details…") }
             AccountResult.AuthenticationRequired -> item { Text("Sign in again to verify account access.", color = MaterialTheme.colorScheme.error) }
             is AccountResult.Unavailable -> item { Text(current.message, color = MaterialTheme.colorScheme.error) }
             is AccountResult.Success -> item {
@@ -431,7 +427,7 @@ private fun CustomerMoreScreen(
         }
         item { Text("Active mobile sessions", style = MaterialTheme.typography.titleLarge) }
         when (val current = sessions) {
-            null -> item { CircularProgressIndicator() }
+            null -> item { LoadingMessage("Checking active mobile sessions…") }
             SecuritySessionsResult.AuthenticationRequired -> item { Text("Sign in again to verify active sessions.", color = MaterialTheme.colorScheme.error) }
             is SecuritySessionsResult.Unavailable -> item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -455,7 +451,7 @@ private fun CustomerMoreScreen(
         }
         item { Text("Delivery center", style = MaterialTheme.typography.titleLarge) }
         when (val current = deliveries) {
-            null -> item { CircularProgressIndicator() }
+            null -> item { LoadingMessage("Loading private deliveries…") }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify deliveries.", color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Unavailable -> item { Text(current.message, color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Success -> if (current.value.deliveries.isEmpty()) item { Text("No scheduled artifact deliveries.") }
@@ -577,7 +573,7 @@ private fun FamilySharingScreen(container: AppContainer, modifier: Modifier, clo
         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to account") }; Text("Family sharing", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) } }
         item { Text("Joining a family changes what can appear in Mosaic, but nothing is shared automatically. Each Memory and Circle sharing choice remains explicit.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         when (val loaded = family) {
-            null -> item { CircularProgressIndicator() }
+            null -> item { LoadingMessage("Loading family access…") }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify family access.", color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Unavailable -> item { Text(loaded.message, color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Success -> if (loaded.value.family == null) {
@@ -626,7 +622,7 @@ private fun CircleDetailScreen(container: AppContainer, circle: io.narratrace.an
     LazyColumn(modifier.fillMaxSize().imePadding(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to family sharing") }; Text(circle.name, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) } }
         when (val loaded = detail) {
-            null -> item { CircularProgressIndicator() }
+            null -> item { LoadingMessage("Opening this private Circle…") }
             is FeatureResult.Unavailable -> item { Text(loaded.message, color = MaterialTheme.colorScheme.error) }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify this Circle.", color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Success -> {
@@ -803,7 +799,7 @@ private fun LettersScreen(container: AppContainer, modifier: Modifier, close: ()
         item { Text("Letters stay private until their delivery time and required recipient verification.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { Button(onClick = { composing = true }, Modifier.fillMaxWidth()) { Text("Write a Letter") } }
         when (val loaded = result) {
-            null -> item { CircularProgressIndicator() }
+            null -> item { LoadingMessage("Loading private Letters…") }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify Letters.", color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Unavailable -> item { Text(loaded.message, color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Success -> if (loaded.value.letters.isEmpty()) item { Text("No Letters yet.") } else items(loaded.value.letters, key = { it.id }) { letter ->
@@ -997,7 +993,7 @@ private fun GuidedInterviewsScreen(container: AppContainer, modifier: Modifier, 
         } }, modifier = Modifier.fillMaxWidth(), enabled = !creating && name.trim().isNotEmpty() && (legal as? FeatureResult.Success)?.value?.aiNoticeAcknowledged == true) { Text("Start interview") } }
         item { Text("Your interviews", style = MaterialTheme.typography.titleLarge) }
         when (val loaded = result) {
-            null -> item { CircularProgressIndicator() }
+            null -> item { LoadingMessage("Refreshing your interviews…") }
             is FeatureResult.Unavailable -> item { Text(loaded.message, color = MaterialTheme.colorScheme.error) }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify interviews.", color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Success -> if (loaded.value.interviews.isEmpty()) item { Text("No interviews yet.") }
@@ -1067,7 +1063,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
         } }
         item { Text("This interview is private. Companion suggestions are AI-generated and should be reviewed.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         when (val loaded = result) {
-            null -> item { CircularProgressIndicator() }
+            null -> item { LoadingMessage("Loading protected interview details…") }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify this interview.", color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Unavailable -> item { Text(loaded.message, color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Success -> {
@@ -1193,7 +1189,7 @@ private fun WrittenMemoryComposer(
             enabled = canSave,
             modifier = Modifier.fillMaxWidth().height(52.dp),
         ) {
-            if (saving) CircularProgressIndicator() else Text("Save securely")
+            if (saving) LoadingMessage("Saving securely…") else Text("Save securely")
         }
         if (outcome is WrittenMemoryResult.Success) {
             Text("Memory preserved privately in Narratrace.", color = MaterialTheme.colorScheme.primary)
@@ -1462,7 +1458,7 @@ private fun ActivityScreen(container: AppContainer, modifier: Modifier, close: (
     LaunchedEffect(refresh) { result = container.customerRepository.activity() }
     LazyColumn(modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }; Text("Activity", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) } }
-        when (val current = result) { null -> item { CircularProgressIndicator() }; FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify Activity.", color = MaterialTheme.colorScheme.error) }; is FeatureResult.Unavailable -> item { Text(current.message, color = MaterialTheme.colorScheme.error) }; is FeatureResult.Success -> if (current.value.items.isEmpty()) item { Text("Nothing needs your attention.") } else items(current.value.items, key = { "activity:${it.id}" }) { item -> Card(Modifier.fillMaxWidth().clickable(enabled = item.kind == "processing") { selected = item.id }) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { Text(item.title ?: item.announcement ?: "Narratrace update", style = MaterialTheme.typography.titleMedium); item.body?.let { Text(it) }; item.progress?.let { LinearProgressIndicator({ it.coerceIn(0,100) / 100f }, Modifier.fillMaxWidth()) }; if (item.kind == "processing") Text("Open processing details", style = MaterialTheme.typography.labelMedium) } } } }
+        when (val current = result) { null -> item { LoadingMessage("Refreshing Activity…") }; FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify Activity.", color = MaterialTheme.colorScheme.error) }; is FeatureResult.Unavailable -> item { Text(current.message, color = MaterialTheme.colorScheme.error) }; is FeatureResult.Success -> if (current.value.items.isEmpty()) item { Text("Nothing needs your attention.") } else items(current.value.items, key = { "activity:${it.id}" }) { item -> Card(Modifier.fillMaxWidth().clickable(enabled = item.kind == "processing") { selected = item.id }) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { Text(item.title ?: item.announcement ?: "Narratrace update", style = MaterialTheme.typography.titleMedium); item.body?.let { Text(it) }; item.progress?.let { LinearProgressIndicator({ it.coerceIn(0,100) / 100f }, Modifier.fillMaxWidth()) }; if (item.kind == "processing") Text("Open processing details", style = MaterialTheme.typography.labelMedium) } } } }
     }
 }
 
@@ -1472,7 +1468,7 @@ private fun ProcessingDetailScreen(container: AppContainer, id: String, modifier
     LaunchedEffect(id, refresh) { result = container.supportRepository.processing(id) }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { IconButton(close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Activity") }; Text("Processing details", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
-        when (val current = result) { null -> CircularProgressIndicator(); FeatureResult.AuthenticationRequired -> Text("Sign in again to verify this processing item.", color = MaterialTheme.colorScheme.error); is FeatureResult.Unavailable -> Text(current.message, color = MaterialTheme.colorScheme.error); is FeatureResult.Success -> { val job = current.value; Text(job.state.replace('_',' ').replaceFirstChar(Char::uppercase), style = MaterialTheme.typography.titleLarge); Text(job.failureCategory ?: if (job.state == "preserved") "The original is preserved." else "The original remains protected while processing continues."); Text("Type: ${job.jobType.replace('_',' ').replaceFirstChar(Char::uppercase)}"); Text("Updated: ${job.updatedAt}"); job.progress?.let { LinearProgressIndicator({ it.coerceIn(0,100) / 100f }, Modifier.fillMaxWidth()) }; if (job.canRetry) { Button({ retrying = true; scope.launch { container.supportRepository.retryProcessing(id); retrying = false; refresh++ } }, enabled = !retrying, modifier = Modifier.fillMaxWidth()) { Text(if (retrying) "Retrying…" else "Try processing again") }; Text("Retrying optional processing does not replace or remove the preserved original.", style = MaterialTheme.typography.bodySmall) } } }
+        when (val current = result) { null -> LoadingMessage("Checking processing state…"); FeatureResult.AuthenticationRequired -> Text("Sign in again to verify this processing item.", color = MaterialTheme.colorScheme.error); is FeatureResult.Unavailable -> Text(current.message, color = MaterialTheme.colorScheme.error); is FeatureResult.Success -> { val job = current.value; Text(job.state.replace('_',' ').replaceFirstChar(Char::uppercase), style = MaterialTheme.typography.titleLarge); Text(job.failureCategory ?: if (job.state == "preserved") "The original is preserved." else "The original remains protected while processing continues."); Text("Type: ${job.jobType.replace('_',' ').replaceFirstChar(Char::uppercase)}"); Text("Updated: ${job.updatedAt}"); job.progress?.let { LinearProgressIndicator({ it.coerceIn(0,100) / 100f }, Modifier.fillMaxWidth()) }; if (job.canRetry) { Button({ retrying = true; scope.launch { container.supportRepository.retryProcessing(id); retrying = false; refresh++ } }, enabled = !retrying, modifier = Modifier.fillMaxWidth()) { Text(if (retrying) "Retrying…" else "Try processing again") }; Text("Retrying optional processing does not replace or remove the preserved original.", style = MaterialTheme.typography.bodySmall) } } }
     }
 }
 
@@ -1480,7 +1476,17 @@ private fun ProcessingDetailScreen(container: AppContainer, id: String, modifier
 private fun LoadingSurface(modifier: Modifier, title: String, message: String) {
     Column(modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(title, modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
-        CircularProgressIndicator()
+        LoadingMessage(message)
+    }
+}
+
+@Composable
+private fun LoadingMessage(message: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        CircularProgressIndicator(modifier = Modifier.size(24.dp))
         Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -1538,8 +1544,7 @@ private fun CustomerLibraryScreen(container: AppContainer, modifier: Modifier = 
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Library", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
-            CircularProgressIndicator()
-            Text("Loading your private Library…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            LoadingMessage("Loading your private Library…")
         }
         CustomerMemoriesResult.AuthenticationRequired -> Column(
             modifier = modifier.fillMaxSize().padding(24.dp),
@@ -1819,7 +1824,7 @@ private fun CustomerMemoryDetailScreen(
                     }
                     Text("Changing this Memory never changes the privacy of any other Memory.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (changing) CircularProgressIndicator()
+                if (changing) LoadingMessage("Saving this Memory’s privacy choice…")
             }
         }
     }
@@ -1841,8 +1846,7 @@ private fun CustomerHomeScreen(container: AppContainer, modifier: Modifier = Mod
         Text("Home", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
         when (val current = result) {
             null -> {
-                CircularProgressIndicator()
-                Text("Loading your private Home…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                LoadingMessage("Loading your private Home…")
             }
             CustomerHomeResult.AuthenticationRequired -> Text(
                 "Sign in again to verify your private Home.",
@@ -1900,7 +1904,7 @@ private fun VerifiedHome(customer: CustomerHome, activity: FeatureResult<io.narr
     }
     Text("Activity", style = MaterialTheme.typography.titleLarge)
     when (activity) {
-        null -> CircularProgressIndicator()
+        null -> LoadingMessage("Refreshing Activity…")
         is FeatureResult.Success -> if (activity.value.items.isEmpty()) Text("No account activity yet.", color = MaterialTheme.colorScheme.onSurfaceVariant) else activity.value.items.forEach { item -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
             Text(item.title ?: item.announcement ?: item.kind.replace('_', ' ').replaceFirstChar(Char::uppercase), style = MaterialTheme.typography.titleMedium)
             item.body?.let { Text(it) }; item.state?.let { Text(it.replace('_', ' '), style = MaterialTheme.typography.bodySmall) }
