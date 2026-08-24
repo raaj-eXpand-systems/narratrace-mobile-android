@@ -228,6 +228,12 @@ private fun SignInScreen(container: AppContainer, returning: Boolean) {
             singleLine = true,
             enabled = !isSigningIn,
         )
+        Text(
+            text = "Use the same account as your phone.",
+            modifier = Modifier.padding(top = 16.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyLarge,
+        )
         Button(
             onClick = {
                 isSigningIn = true
