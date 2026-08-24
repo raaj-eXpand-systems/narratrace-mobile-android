@@ -25,6 +25,12 @@ doppler run -- ./gradlew verifyStoreRelease bundleRelease
 
 ## Before internal testing
 
+- Verify Experiment A still requires trial or paid-plan activation before any capture flow opens.
+- Verify Experiment B permits exactly one guided interview before activation while written,
+  photo, standalone audio/video, and Letters entry points remain locked.
+- Complete the Experiment B interview and verify the app presents the secure plan-selection
+  handoff instead of reopening the introductory interview.
+
 - Confirm the bundle is signed with the intended upload certificate.
 - Register its SHA-256 fingerprint with Google OAuth and `https://www.narratrace.io/.well-known/assetlinks.json`.
 - Verify Google sign-in, optional MFA, token rotation, session revocation, and inactivity locking.

@@ -419,7 +419,17 @@ private fun CustomerMoreScreen(
                             "billing_d1" -> Text("Your free trial ends tomorrow. Review or cancel your billing plan on the web.", style = MaterialTheme.typography.bodySmall)
                             "billing_d4", "billing_d2" -> Text("Your trial is still free. Review the exact upcoming charge date and plan details on the web.", style = MaterialTheme.typography.bodySmall)
                         }
+                        if (current.value.experiment?.experienceFirst == true && current.value.experiment?.resourceState != "completed") {
+                            Text("Begin with one guided interview before choosing a plan. Other capture choices remain locked until trial activation.", style = MaterialTheme.typography.bodySmall)
+                        } else if (current.value.experiment?.resourceState == "completed" && !current.value.hasAccess) {
+                            Text("Your guided interview experience is complete. Review Narratrace plans on the secure website to continue preserving memories.", style = MaterialTheme.typography.bodySmall)
+                        }
                         Text("${current.value.storage.usedLabel} used · ${current.value.storage.availableLabel} available", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (current.value.deliveryContact?.status == "verified") {
+                            Text("Delivery contact verified: ${current.value.deliveryContact.email}", style = MaterialTheme.typography.bodySmall)
+                        } else {
+                            Text("Verify a durable email address on the secure account website before scheduling a future delivery.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        }
                     }
                 }
             }
@@ -714,7 +724,10 @@ private fun CustomerCaptureScreen(
             retry = { accountResult = null; refreshKey++ },
         )
         is AccountResult.Success -> {
-            val permitted = current.value.capabilities.captureMemories
+            val fullCaptureAccess = current.value.hasAccess
+            val experienceFirstAccess = current.value.experiment?.experienceFirst == true &&
+                current.value.experiment?.resourceState != "completed"
+            val interviewAccess = fullCaptureAccess || experienceFirstAccess
             LazyColumn(
                 modifier = modifier.fillMaxSize(),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp),
@@ -722,9 +735,20 @@ private fun CustomerCaptureScreen(
             ) {
                 item { Text("Capture a Memory", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
                 item { Text("Nothing is shared automatically.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                if (experienceFirstAccess) item {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Begin with one guided interview", style = MaterialTheme.typography.titleMedium)
+                            Text("You can experience a guided interview before choosing a plan. Other capture choices become available after trial activation.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                if (current.value.experiment?.resourceState == "completed" && !fullCaptureAccess) item {
+                    Text("Your guided experience is complete. Choose a plan on the secure Narratrace website to continue preserving memories.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 item {
                     Card(
-                        Modifier.fillMaxWidth().clickable(enabled = permitted) {
+                        Modifier.fillMaxWidth().clickable(enabled = fullCaptureAccess) {
                             onInteraction(); writing = true
                         },
                     ) {
@@ -739,29 +763,29 @@ private fun CustomerCaptureScreen(
                     Text("Send now or preserve it privately for a future delivery time.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } } }
                 item {
-                    Card(Modifier.fillMaxWidth().clickable(enabled = permitted) { onInteraction(); recordingAudio = true }) {
+                    Card(Modifier.fillMaxWidth().clickable(enabled = fullCaptureAccess) { onInteraction(); recordingAudio = true }) {
                         Column(Modifier.padding(16.dp)) {
                             Text("Record audio", style = MaterialTheme.typography.titleMedium)
                             Text("Encrypted on this device until preservation is verified.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
-                item { Card(Modifier.fillMaxWidth().clickable(enabled = permitted) { photoPicker.launch("image/*") }) { Column(Modifier.padding(16.dp)) {
+                item { Card(Modifier.fillMaxWidth().clickable(enabled = fullCaptureAccess) { photoPicker.launch("image/*") }) { Column(Modifier.padding(16.dp)) {
                     Text("Add a photo", style = MaterialTheme.typography.titleMedium)
                     Text("The selected photo is encrypted before retry staging.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     photoMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 } } }
-                item { Card(Modifier.fillMaxWidth().clickable(enabled = permitted) { videoPicker.launch("video/*") }) { Column(Modifier.padding(16.dp)) {
+                item { Card(Modifier.fillMaxWidth().clickable(enabled = fullCaptureAccess) { videoPicker.launch("video/*") }) { Column(Modifier.padding(16.dp)) {
                     Text("Record video", style = MaterialTheme.typography.titleMedium)
                     Text("Choose or record a clip for encrypted, resumable preservation.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } } }
                 item {
-                    Card(Modifier.fillMaxWidth().clickable(enabled = permitted) { onInteraction(); interviews = true }) { Column(Modifier.padding(16.dp)) {
+                    Card(Modifier.fillMaxWidth().clickable(enabled = interviewAccess) { onInteraction(); interviews = true }) { Column(Modifier.padding(16.dp)) {
                         Text("Start a guided interview", style = MaterialTheme.typography.titleMedium)
                         Text("Use text or protected audio responses with Companion.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } }
                 }
-                if (!permitted) item {
+                if (!fullCaptureAccess && !experienceFirstAccess) item {
                     Text("Your current account can read the archive but cannot capture new Memories.", color = MaterialTheme.colorScheme.error)
                 }
             }

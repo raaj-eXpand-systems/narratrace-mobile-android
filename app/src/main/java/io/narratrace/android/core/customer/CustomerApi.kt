@@ -28,6 +28,21 @@ data class AccountCapabilities(
 )
 
 @Serializable
+data class AccountExperiment(
+    val cardGateArm: String,
+    val experienceFirst: Boolean,
+    val resourceState: String? = null,
+)
+
+@Serializable
+data class DeliveryContact(
+    val email: String? = null,
+    val verifiedAt: String? = null,
+    val reverifyAfter: String? = null,
+    val status: String,
+)
+
+@Serializable
 data class AccountSummary(
     val status: String,
     val plan: String? = null,
@@ -41,6 +56,8 @@ data class AccountSummary(
     val trialLifecycleStage: String? = null,
     val storage: StorageSummary,
     val capabilities: AccountCapabilities,
+    val experiment: AccountExperiment? = null,
+    val deliveryContact: DeliveryContact? = null,
 )
 
 @Serializable

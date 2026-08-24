@@ -28,6 +28,27 @@ class CustomerContractTest {
     }
 
     @Test
+    fun `account contract keeps experience first interview separate from full access`() {
+        val payload = """
+            {"data":{"status":"invited","plan":null,"billingCycle":null,
+            "trialEndsAt":null,"currentPeriodEndsAt":null,"daysRemaining":null,
+            "hasAccess":false,"canReadArchive":false,"activated":false,"trialLifecycleStage":null,
+            "storage":{"usedBytes":0,"availableBytes":53687091200,"totalBytes":53687091200,"usedLabel":"0 B","availableLabel":"50 GB","totalLabel":"50 GB","usedPercent":0},
+            "capabilities":{"captureMemories":true,"createLetters":false,"managePeople":false,"familyCircles":false},
+            "experiment":{"cardGateArm":"B","experienceFirst":true,"resourceState":"available"}},
+            "meta":{"apiVersion":"1","requestId":"request-exp","supportId":"request-exp"}}
+        """.trimIndent()
+
+        val account = NarratraceJson.decodeFromString(
+            ApiSuccess.serializer(serializer<AccountSummary>()), payload,
+        ).data
+        assertFalse(account.hasAccess)
+        assertEquals("B", account.experiment?.cardGateArm)
+        assertEquals(true, account.experiment?.experienceFirst)
+        assertEquals("available", account.experiment?.resourceState)
+    }
+
+    @Test
     fun `home contract decodes private memory and attention without identity fields`() {
         val payload = """
             {"data":{"recentMemories":[{"id":"123e4567-e89b-42d3-a456-426614174000","sourceInterviewId":null,"sourceMessageId":null,"title":"A summer afternoon","excerpt":"At the lake","memoryType":"written","visibility":"private","status":"active","pinned":false,"isOwner":true,"updatedAt":"2026-08-11T20:00:00.000Z"}],

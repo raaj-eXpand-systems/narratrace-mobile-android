@@ -29,7 +29,7 @@ import kotlinx.serialization.serializer
     val deliverTimezone: String? = null, val deliverLocalDatetime: String? = null,
 )
 @Serializable data class ArtifactDelivery(
-    val id: String, val uploadId: Int? = null, val artifactKind: String, val recipientName: String,
+    val id: String, val uploadId: Int? = null, val keepsakeBookId: String? = null, val artifactKind: String, val recipientName: String,
     val recipientEmail: String, val selfDelivery: Boolean, val deliverAt: String, val state: String,
     val revokedAt: String? = null, val createdAt: String? = null,
 )
@@ -37,7 +37,7 @@ import kotlinx.serialization.serializer
 @Serializable data class Revocation(val revoked: Boolean)
 @Serializable data class ArtifactDeliveryCreation(val kind: String, val delivery: ArtifactDelivery)
 @Serializable private data class ArtifactDeliveryInput(
-    val uploadId: String, val recipientName: String, val recipientEmail: String? = null,
+    val uploadId: String? = null, val keepsakeBookId: String? = null, val recipientName: String, val recipientEmail: String? = null,
     val selfDelivery: Boolean, val deliveryMode: String, val deliverAt: String? = null,
     val deliverTimezone: String? = null, val deliverLocalDatetime: String? = null,
 )
@@ -63,7 +63,14 @@ class LettersApi(private val client: NarratraceApiClient) {
         uploadId: String, name: String, email: String?, self: Boolean, mode: String,
         at: String?, timezone: String?, local: String?, token: String,
     ): ApiResult<ArtifactDeliveryCreation> = client.post(
-        "/api/v1/artifact-deliveries", NarratraceJson.encodeToString(ArtifactDeliveryInput(uploadId, name, email, self, mode, at, timezone, local)),
+        "/api/v1/artifact-deliveries", NarratraceJson.encodeToString(ArtifactDeliveryInput(uploadId = uploadId, recipientName = name, recipientEmail = email, selfDelivery = self, deliveryMode = mode, deliverAt = at, deliverTimezone = timezone, deliverLocalDatetime = local)),
+        serializer<ArtifactDeliveryCreation>(), token,
+    )
+    suspend fun createKeepsakeDelivery(
+        keepsakeBookId: String, name: String, email: String?, self: Boolean, mode: String,
+        at: String?, timezone: String?, local: String?, token: String,
+    ): ApiResult<ArtifactDeliveryCreation> = client.post(
+        "/api/v1/artifact-deliveries", NarratraceJson.encodeToString(ArtifactDeliveryInput(keepsakeBookId = keepsakeBookId, recipientName = name, recipientEmail = email, selfDelivery = self, deliveryMode = mode, deliverAt = at, deliverTimezone = timezone, deliverLocalDatetime = local)),
         serializer<ArtifactDeliveryCreation>(), token,
     )
 }

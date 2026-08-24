@@ -30,7 +30,7 @@ import kotlinx.serialization.serializer
 @Serializable data class InterviewDetail(
     val interview: InterviewSummary, val messages: List<InterviewMessage>, val narrative: String? = null,
 )
-@Serializable data class InterviewResponse(val message: InterviewMessage, val replayed: Boolean = false)
+@Serializable data class InterviewResponse(val message: InterviewMessage, val replayed: Boolean = false, val requiresCheckout: Boolean = false)
 @Serializable private data class InterviewTextResponse(val content: String)
 @Serializable data class RecordingCapacity(
     val remainingBytes: Long, val remainingLabel: String, val audioMaxSeconds: Int, val videoMaxSeconds: Int,

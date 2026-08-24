@@ -195,7 +195,7 @@ flagged**. Two exceptions exist and are called out inline.
 | Route | Methods | Auth | Request | Data |
 |---|---|---|---|---|
 | `/me` | GET | bearer\|web | — | `accountId, providerSubject, email, authenticationMethod` |
-| `/account` | GET | bearer | — | `status, plan, billingCycle, trialEndsAt, currentPeriodEndsAt, daysRemaining, hasAccess, canReadArchive, storage{usedBytes,availableBytes,totalBytes,usedLabel,availableLabel,totalLabel,usedPercent}, capabilities{captureMemories,createLetters,managePeople,familyCircles}` |
+| `/account` | GET | bearer | — | `status, plan, billingCycle, activated, trialLifecycleStage, trialEndsAt, currentPeriodEndsAt, daysRemaining, hasAccess, canReadArchive, storage{usedBytes,availableBytes,totalBytes,usedLabel,availableLabel,totalLabel,usedPercent}, capabilities{captureMemories,createLetters,managePeople,familyCircles}, experiment{cardGateArm:'A'|'B',experienceFirst,resourceState:'available'|'claimed'|'completed'|null}` |
 | `/profile` | GET, PATCH | bearer | PATCH any of: `displayName` ≤80, `birthYear` int 1900…year−5 or `null`/`""`, `preferredLanguage` `'en'\|'hi'` | `profile{email, displayName, birthYear, preferredLanguage}` |
 | `/legal/acceptance` | GET, POST | bearer | POST: `acceptTerms`, `acknowledgePrivacy`, `acknowledgeAiNotice` — **all three literal `true`** | `termsAccepted, aiNoticeAcknowledged, termsVersion, privacyVersion, aiNoticeVersion, acceptedAt` |
 | `/feedback` | POST | bearer | `senderName?`, `kind` (`'issue'`, else coerced `'feedback'`), `message`, `pageReference` (required when issue), `screenshot?{name,type,data}` base64 PNG/JPEG/WebP ≤5 MB. 8 MB body cap. RL 10/hr | `submitted: true` |
@@ -205,6 +205,12 @@ flagged**. Two exceptions exist and are called out inline.
 `/account.storage` is the source for the capacity card required by plan §7 (75% warning,
 90% critical). Note the server already supplies pre-formatted `*Label` strings — use them
 rather than formatting bytes on-device, so iOS and Android read identically.
+
+`/account.capabilities.captureMemories` can include the Experiment B exception for one
+guided interview before trial activation. It does not grant photo, standalone audio/video,
+or written-memory capture while `hasAccess` is false. Native clients therefore enable only
+the guided interview while `experiment.experienceFirst` is active; all other capture remains
+governed by `hasAccess`.
 
 ### Mobile platform
 
