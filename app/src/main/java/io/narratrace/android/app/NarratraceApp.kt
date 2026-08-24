@@ -779,7 +779,7 @@ private fun CustomerCaptureScreen(
                 item {
                     Card(Modifier.fillMaxWidth().clickable(enabled = interviewAccess) { onInteraction(); interviews = true }) { Column(Modifier.padding(16.dp)) {
                         Text("Start a guided interview", style = MaterialTheme.typography.titleMedium)
-                        Text("Use text or protected audio responses with Companion.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Use text or protected audio responses with Nia.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } }
                 }
                 if (!fullCaptureAccess && !experienceFirstAccess) item {
@@ -988,7 +988,7 @@ private fun GuidedInterviewsScreen(container: AppContainer, modifier: Modifier, 
             IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Capture") }
             Text("Guided interviews", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
         } }
-        item { Text("Companion uses your responses to suggest thoughtful follow-up questions. AI may make mistakes; review generated material before relying on or sharing it.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text("Nia uses your responses to suggest thoughtful follow-up questions. AI may make mistakes; review generated material before relying on or sharing it.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (legal is FeatureResult.Success && !(legal as FeatureResult.Success<io.narratrace.android.core.media.LegalAcceptance>).value.aiNoticeAcknowledged) {
             item { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Review required", style = MaterialTheme.typography.titleMedium)
@@ -1087,7 +1087,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
             IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to interviews") }
             Text(summary.subjectName, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
         } }
-        item { Text("This interview is private. Companion suggestions are AI-generated and should be reviewed.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text("This interview is private. Nia’s suggestions are AI-generated and should be reviewed.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         when (val loaded = result) {
             null -> item { LoadingMessage("Loading protected interview details…") }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify this interview.", color = MaterialTheme.colorScheme.error) }
@@ -1107,7 +1107,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
                     listOfNotNull(loaded.value.messages.lastOrNull { it.role == "assistant" })
                 } else loaded.value.messages
                 items(visibleMessages, key = { it.id }) { message -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(if (recordingMode == "together") 20.dp else 12.dp)) {
-                    Text(if (message.role == "assistant") "Companion" else "You", style = MaterialTheme.typography.labelMedium)
+                    Text(if (message.role == "assistant") "Nia" else "You", style = MaterialTheme.typography.labelMedium)
                     Text(message.content, style = if (recordingMode == "together") MaterialTheme.typography.headlineLarge else MaterialTheme.typography.bodyLarge)
                     if (message.hasMedia) Text("Protected ${message.mediaType ?: "media"} response", style = MaterialTheme.typography.bodySmall)
                 } } }
