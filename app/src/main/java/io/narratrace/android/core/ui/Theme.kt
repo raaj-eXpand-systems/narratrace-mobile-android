@@ -2,10 +2,14 @@ package io.narratrace.android.core.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 
 private val LightColors = lightColorScheme(
     primary = Color(0xFF2D4C3B),
@@ -59,6 +63,19 @@ private val ChaiLatteColors = lightColorScheme(
     outline = Color(0xFF766353), error = Color(0xFF9F293B),
 )
 
+// Narratrace's primary storytellers are frequently older adults. Keep every
+// body, supporting-label, and compact-title token at 16sp or larger while
+// preserving Android's user-selected font scaling.
+private val NarratraceTypography = Typography(
+    bodyLarge = TextStyle(fontSize = 18.sp, lineHeight = 27.sp),
+    bodyMedium = TextStyle(fontSize = 16.sp, lineHeight = 24.sp),
+    bodySmall = TextStyle(fontSize = 16.sp, lineHeight = 23.sp),
+    labelLarge = TextStyle(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Medium),
+    labelMedium = TextStyle(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Medium),
+    labelSmall = TextStyle(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Medium),
+    titleSmall = TextStyle(fontSize = 18.sp, lineHeight = 24.sp, fontWeight = FontWeight.Medium),
+)
+
 enum class NarratraceAppearance {
     System,
     Light,
@@ -82,6 +99,7 @@ fun NarratraceTheme(
     }
     MaterialTheme(
         colorScheme = colors,
+        typography = NarratraceTypography,
         content = content,
     )
 }
