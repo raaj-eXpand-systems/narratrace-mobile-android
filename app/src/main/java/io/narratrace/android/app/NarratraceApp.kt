@@ -414,13 +414,8 @@ private fun CustomerMoreScreen(
                         Text("Plan", style = MaterialTheme.typography.titleMedium)
                         Text("${current.value.plan.planLabel()} · ${current.value.status.statusLabel()}")
                         current.value.billingCycle?.let { Text("Billing: ${it.replace('_', ' ').replaceFirstChar(Char::uppercase)}", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        when (current.value.trialLifecycleStage) {
-                            "halfway" -> Text(if (current.value.activated == true) "You’re halfway through your free trial. You’ve started building your Narratrace." else "You’re halfway through your free trial. Preserve your first meaningful memory.", style = MaterialTheme.typography.bodySmall)
-                            "billing_d1" -> Text("Your free trial ends tomorrow. Review or cancel your billing plan on the web.", style = MaterialTheme.typography.bodySmall)
-                            "billing_d4", "billing_d2" -> Text("Your trial is still free. Review the exact upcoming charge date and plan details on the web.", style = MaterialTheme.typography.bodySmall)
-                        }
                         if (current.value.experiment?.experienceFirst == true && current.value.experiment?.resourceState != "completed") {
-                            Text("Begin with one guided interview before choosing a plan. Other capture choices remain locked until trial activation.", style = MaterialTheme.typography.bodySmall)
+                            Text("Begin with one guided interview before choosing a plan. Other capture choices remain locked until you purchase a plan.", style = MaterialTheme.typography.bodySmall)
                         } else if (current.value.experiment?.resourceState == "completed" && !current.value.hasAccess) {
                             Text("Your guided interview experience is complete. Review Narratrace plans on the secure website to continue preserving memories.", style = MaterialTheme.typography.bodySmall)
                         }
@@ -558,7 +553,7 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
         }
         item { Text("Notification preferences", style = MaterialTheme.typography.titleLarge) }
         (preferences as? FeatureResult.Success)?.value?.preferences?.let { prefs ->
-            val choices = listOf("processing_ready" to ("Processing ready" to prefs.processingReady), "invitations" to ("Invitations" to prefs.invitations), "letters" to ("Letters" to prefs.letters), "trial_and_billing" to ("Trial and billing" to prefs.trialAndBilling), "product_guidance" to ("Product guidance" to prefs.productGuidance))
+            val choices = listOf("processing_ready" to ("Processing ready" to prefs.processingReady), "invitations" to ("Invitations" to prefs.invitations), "letters" to ("Letters" to prefs.letters), "trial_and_billing" to ("Plan and billing" to prefs.trialAndBilling), "product_guidance" to ("Product guidance" to prefs.productGuidance))
             items(choices, key = { it.first }) { choice -> Button(onClick = { busy = true; scope.launch { preferences = container.settingsRepository.updatePreference(choice.first, !choice.second.second); busy = false } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(choice.second.first + if (choice.second.second) " ✓" else "") } }
         }
         item { Text("Notifications never include Memory, Letter, interview, or family content. In-app Activity remains authoritative.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -580,7 +575,7 @@ private fun FamilySharingScreen(container: AppContainer, modifier: Modifier, clo
     BackHandler(onBack = close)
     LazyColumn(modifier.fillMaxSize().imePadding(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to account") }; Text("Family sharing", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) } }
-        item { Text("Joining a family changes what can appear in Mosaic, but nothing is shared automatically. Individual Memory and Circle sharing choices remain explicit.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text("Joining a family changes what can appear in Mosaic, but nothing is shared automatically. Each Memory and Circle sharing choice remains explicit.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         when (val loaded = family) {
             null -> item { CircularProgressIndicator() }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify family access.", color = MaterialTheme.colorScheme.error) }
@@ -606,7 +601,7 @@ private fun FamilySharingScreen(container: AppContainer, modifier: Modifier, clo
             }
         }
         message?.let { item { Text(it, style = MaterialTheme.typography.bodySmall) } }
-        item { Text("Extended Family Circles", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Family Circles", style = MaterialTheme.typography.titleLarge) }
         item { Text("A Circle sees only completed interviews you explicitly select and Letters delivered to that Circle.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { OutlinedTextField(circleName, { circleName = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("New Circle name") }, singleLine = true) }
         item { OutlinedTextField(circleDescription, { circleDescription = it.take(500) }, Modifier.fillMaxWidth(), label = { Text("Description (optional)") }) }
@@ -739,7 +734,7 @@ private fun CustomerCaptureScreen(
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("Begin with one guided interview", style = MaterialTheme.typography.titleMedium)
-                            Text("You can experience a guided interview before choosing a plan. Other capture choices become available after trial activation.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("You can preserve one guided interview before choosing a plan. Other capture choices become available after you purchase a plan.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -1918,10 +1913,9 @@ private fun VerifiedHome(customer: CustomerHome, activity: FeatureResult<io.narr
 
 private fun String?.planLabel(): String = when (this) {
     "vault" -> "Vault"
-    "individual" -> "Individual"
-    "family" -> "Family"
-    "extended_family" -> "Extended Family"
-    else -> "Trial"
+    "individual" -> "A Life"
+    "family", "extended_family" -> "Family"
+    else -> "Free guided interview"
 }
 
 private fun String.statusLabel(): String = when (this) {
