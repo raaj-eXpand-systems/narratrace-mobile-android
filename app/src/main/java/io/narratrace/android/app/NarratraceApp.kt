@@ -1652,7 +1652,16 @@ private fun CustomerMediaDetailScreen(container: AppContainer, mediaId: String, 
                 Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Library") }; Text(detail.title, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
                 if (detail.kind == "photo") photoBytes?.let { bytes -> BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.let { bitmap -> Image(bitmap.asImageBitmap(), "Preserved photo", Modifier.fillMaxWidth()) } }
                 else detail.playbackUrl?.let { url -> AndroidView(
-                    factory = { ctx -> VideoView(ctx).apply { val controls = MediaController(ctx); controls.setAnchorView(this); setMediaController(controls); setVideoPath(url); setOnPreparedListener { start() } } },
+                    factory = { ctx -> VideoView(ctx).apply {
+                        contentDescription = "Protected ${detail.kind} player for ${detail.title}"
+                        isFocusable = true
+                        isFocusableInTouchMode = true
+                        val controls = MediaController(ctx)
+                        controls.setAnchorView(this)
+                        setMediaController(controls)
+                        setVideoPath(url)
+                        setOnPreparedListener { start() }
+                    } },
                     modifier = Modifier.fillMaxWidth().height(if (detail.kind == "video") 260.dp else 80.dp),
                 ) }
                 detail.caption?.takeIf(String::isNotBlank)?.let { Text(it) }
