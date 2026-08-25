@@ -67,7 +67,11 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
@@ -347,6 +351,8 @@ private fun CustomerMoreScreen(
     var permissionsOpen by remember { mutableStateOf(false) }
     var activityOpen by remember { mutableStateOf(false) }
     var resourcesOpen by remember { mutableStateOf(false) }
+    var awaitingAccountManagementReturn by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
     if (familyOpen) { FamilySharingScreen(container, modifier) { familyOpen = false }; return }
     if (settingsOpen) { ProfileSettingsScreen(container, modifier) { settingsOpen = false }; return }
     if (feedbackOpen) { FeedbackSupportScreen(container, modifier) { feedbackOpen = false }; return }
@@ -357,6 +363,17 @@ private fun CustomerMoreScreen(
         account = container.customerRepository.loadAccount()
         sessions = container.securityRepository.loadSessions()
         deliveries = container.lettersRepository.deliveries()
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (shouldRefreshAccountAfterExternalBilling(awaitingAccountManagementReturn, event)) {
+                awaitingAccountManagementReturn = false
+                account = null
+                refreshKey++
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     revokeDeliveryId?.let { id -> AlertDialog(
@@ -414,7 +431,10 @@ private fun CustomerMoreScreen(
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Plan", style = MaterialTheme.typography.titleMedium)
-                        Text("${current.value.plan.planLabel()} · ${current.value.status.statusLabel()}")
+                        Text(
+                            "${current.value.plan.planLabel()} · ${current.value.status.statusLabel()}",
+                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                        )
                         current.value.billingCycle?.let { Text("Billing: ${it.replace('_', ' ').replaceFirstChar(Char::uppercase)}", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         if (current.value.experiment?.experienceFirst == true && current.value.experiment?.resourceState != "completed") {
                             Text("Begin with one guided interview before choosing a plan. Other capture choices remain locked until you purchase a plan.", style = MaterialTheme.typography.bodySmall)
@@ -483,9 +503,13 @@ private fun CustomerMoreScreen(
         item { Card(Modifier.fillMaxWidth().clickable { resourcesOpen = true }) { Column(Modifier.padding(16.dp)) { Text("Keepsake books and downloadable resources", style = MaterialTheme.typography.titleMedium); Text("Open authenticated resources on the Narratrace website.", color = MaterialTheme.colorScheme.onSurfaceVariant) } } }
         if (container.latestSupportReference().isNotBlank()) item { TextButton(onClick = { (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Narratrace support reference", container.latestSupportReference())) }, Modifier.fillMaxWidth()) { Text("Copy latest support reference") } }
         item { Text("Account data and closure", style = MaterialTheme.typography.titleLarge) }
-        item { Card(Modifier.fillMaxWidth().clickable { context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.narratrace.io/account"))) }) { Column(Modifier.padding(16.dp)) {
+        item { Card(Modifier.fillMaxWidth().clickable(role = Role.Button) {
+            awaitingAccountManagementReturn = true
+            context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account".toUri()))
+        }) { Column(Modifier.padding(16.dp)) {
             Text("Open secure account management", style = MaterialTheme.typography.titleMedium)
             Text("Request an archive, manage billing, or review closure and recovery on the authenticated website. Signing out does not delete your account.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Your plan and billing status refresh automatically when you return.", style = MaterialTheme.typography.bodySmall)
             Text("Closed accounts can be recovered for 30 days; inactive or terminated account data follows the 365-day retention policy.", style = MaterialTheme.typography.bodySmall)
         } } }
         revocationFailure?.let { failure -> item {
@@ -1981,3 +2005,8 @@ private fun String.statusLabel(): String = when (this) {
     "invited" -> "Invitation accepted"
     else -> "Access unavailable"
 }
+
+internal fun shouldRefreshAccountAfterExternalBilling(
+    awaitingReturn: Boolean,
+    event: Lifecycle.Event,
+): Boolean = awaitingReturn && event == Lifecycle.Event.ON_RESUME
