@@ -441,6 +441,20 @@ private fun CustomerMoreScreen(
                         } else if (current.value.experiment?.resourceState == "completed" && !current.value.hasAccess) {
                             Text("Your guided interview experience is complete. Review Narratrace plans on the secure website to continue preserving memories.", style = MaterialTheme.typography.bodySmall)
                         }
+                        if (!current.value.hasAccess) {
+                            Button(
+                                onClick = {
+                                    awaitingAccountManagementReturn = true
+                                    scope.launch { container.customerRepository.recordPlanViewed() }
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/subscribe".toUri()))
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("Review Narratrace plans") }
+                            Text(
+                                "Opens the secure Narratrace website. Your plan status refreshes when you return.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                         Text("${current.value.storage.usedLabel} used · ${current.value.storage.availableLabel} available", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (current.value.deliveryContact?.status == "verified") {
                             Text("Delivery contact verified: ${current.value.deliveryContact.email}", style = MaterialTheme.typography.bodySmall)

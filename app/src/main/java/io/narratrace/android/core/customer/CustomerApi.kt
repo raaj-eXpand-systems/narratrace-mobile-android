@@ -154,6 +154,12 @@ data class MemoryCreation(val kind: String, val id: String, val replayed: Boolea
 data class MemoryResponse(val memory: RemoteMemory)
 
 @Serializable
+internal data class CustomerActivityRequest(val action: String)
+
+@Serializable
+data class CustomerActivityRecorded(val recorded: Boolean)
+
+@Serializable
 private data class MemoryActionRequest(
     val visibility: String? = null,
     val pinned: Boolean? = null,
@@ -184,6 +190,7 @@ interface CustomerGateway {
     suspend fun updatePerson(accessToken: String, id: String, name: String, relation: String): ApiResult<PersonUpdated>
     suspend fun search(accessToken: String, query: String): ApiResult<SearchResponse>
     suspend fun activity(accessToken: String): ApiResult<ActivityPage>
+    suspend fun recordPlanViewed(accessToken: String): ApiResult<CustomerActivityRecorded>
 }
 
 class CustomerApi(private val client: NarratraceApiClient) : CustomerGateway {
@@ -246,6 +253,12 @@ class CustomerApi(private val client: NarratraceApiClient) : CustomerGateway {
     )
     override suspend fun activity(accessToken: String): ApiResult<ActivityPage> = client.get(
         "/api/v1/mobile/activity?limit=50", serializer<ActivityPage>(), accessToken,
+    )
+    override suspend fun recordPlanViewed(accessToken: String): ApiResult<CustomerActivityRecorded> = client.post(
+        "/api/v1/customer-activity",
+        NarratraceJson.encodeToString(CustomerActivityRequest(action = "paywall_viewed")),
+        serializer<CustomerActivityRecorded>(),
+        accessToken,
     )
 }
 

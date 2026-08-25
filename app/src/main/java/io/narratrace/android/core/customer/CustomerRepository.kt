@@ -61,6 +61,10 @@ class CustomerRepository(
 
     suspend fun activity(): FeatureResult<ActivityPage> = genericCall { gateway.activity(it) }
 
+    /** Availability of first-party activity recording never blocks plan access. */
+    suspend fun recordPlanViewed(): FeatureResult<CustomerActivityRecorded> =
+        genericCall { gateway.recordPlanViewed(it) }
+
     suspend fun createPerson(name: String, relation: String): FeatureResult<RemotePerson> {
         val cleanName = name.trim(); val cleanRelation = relation.trim()
         if (cleanName.isEmpty() || cleanName.length > 200 || cleanRelation.length > 100) return FeatureResult.Unavailable("Enter a name and optional relationship within the supported limits.")
