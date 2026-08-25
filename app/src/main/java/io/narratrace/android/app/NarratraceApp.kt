@@ -82,6 +82,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.activity.compose.BackHandler
 import io.narratrace.android.core.auth.AuthState
+import io.narratrace.android.core.auth.EmailVerificationChallenge
 import io.narratrace.android.core.auth.SignInResult
 import io.narratrace.android.core.auth.RevokeScope
 import io.narratrace.android.core.auth.RevocationResult
@@ -180,7 +181,11 @@ private fun ProtectedLoadingScreen() {
 private fun SignInScreen(container: AppContainer, returning: Boolean) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var inviteCode by remember { mutableStateOf("") }
     var mfaCode by remember { mutableStateOf("") }
+    var emailCode by remember { mutableStateOf("") }
+    var emailChallenge by remember { mutableStateOf<EmailVerificationChallenge?>(null) }
+    var requiresMfaEnrollment by remember { mutableStateOf(false) }
     var isSigningIn by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var supportReference by remember { mutableStateOf("") }
@@ -219,34 +224,131 @@ private fun SignInScreen(container: AppContainer, returning: Boolean) {
                 style = MaterialTheme.typography.bodySmall,
             )
         }
-        OutlinedTextField(
-            value = mfaCode,
-            onValueChange = { value ->
-                mfaCode = value.uppercase().filter { it.isDigit() || it in 'A'..'F' || it == '-' }.take(19)
-                message = null
-            },
-            modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
-            label = { Text("Authenticator or recovery code (optional)") },
-            supportingText = { Text("Leave blank unless you enabled authenticator protection.") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-            singleLine = true,
-            enabled = !isSigningIn,
-        )
-        Text(
-            text = "Use the same account as your phone.",
-            modifier = Modifier.padding(top = 16.dp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodyLarge,
-        )
-        Button(
+        if (emailChallenge == null && !requiresMfaEnrollment) {
+            OutlinedTextField(
+                value = inviteCode,
+                onValueChange = { value ->
+                    inviteCode = value.uppercase().filter { it.isDigit() || it in 'A'..'Z' || it == '-' }.take(32)
+                    message = null
+                },
+                modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+                label = { Text("Your invitation code") },
+                supportingText = { Text("Required every time you sign in.") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                singleLine = true,
+                enabled = !isSigningIn,
+            )
+            OutlinedTextField(
+                value = mfaCode,
+                onValueChange = { value ->
+                    mfaCode = value.uppercase().filter { it.isDigit() || it in 'A'..'F' || it == '-' }.take(19)
+                    message = null
+                },
+                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                label = { Text("Authenticator or recovery code (optional)") },
+                supportingText = { Text("Leave blank unless you enabled authenticator protection.") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                singleLine = true,
+                enabled = !isSigningIn,
+            )
+            Text(
+                text = "Use the same account as your phone. It must be the Google account that received this invitation.",
+                modifier = Modifier.padding(top = 16.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+        }
+        emailChallenge?.let { challenge ->
+            Text(
+                text = "Verify your email",
+                modifier = Modifier.padding(top = 24.dp).semantics {
+                    heading()
+                    liveRegion = LiveRegionMode.Polite
+                },
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            Text(
+                text = "We sent a 6-digit code to ${challenge.maskedEmail}.",
+                modifier = Modifier.padding(top = 8.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            OutlinedTextField(
+                value = emailCode,
+                onValueChange = { value ->
+                    emailCode = value.filter(Char::isDigit).take(6)
+                    message = null
+                },
+                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                label = { Text("Email verification code") },
+                supportingText = { Text("Enter the 6-digit code. It expires after 10 minutes.") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                singleLine = true,
+                enabled = !isSigningIn,
+            )
+            TextButton(
+                onClick = {
+                    emailChallenge = null
+                    emailCode = ""
+                    message = null
+                    supportReference = ""
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isSigningIn,
+            ) { Text("Start sign-in again") }
+        }
+        if (requiresMfaEnrollment) {
+            Text(
+                text = "Your Narratrace role requires authenticator setup before you can sign in. Complete setup securely on the Narratrace website, then return here and try again.",
+                modifier = Modifier.padding(top = 24.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Button(
+                onClick = {
+                    context.startActivity(
+                        Intent(
+                            Intent.ACTION_VIEW,
+                            "https://www.narratrace.io/auth/signin?callbackUrl=%2Fauth%2Fmfa".toUri(),
+                        ),
+                    )
+                },
+                modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(52.dp),
+            ) { Text("Set up authenticator on the web") }
+            TextButton(
+                onClick = {
+                    requiresMfaEnrollment = false
+                    message = null
+                    supportReference = ""
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Back to sign in") }
+        }
+        if (!requiresMfaEnrollment) Button(
             onClick = {
                 isSigningIn = true
                 message = null
                 supportReference = ""
                 scope.launch {
-                    when (val result = container.authenticationCoordinator(context).signIn(mfaCode)) {
+                    val coordinator = container.authenticationCoordinator(context)
+                    val result = emailChallenge?.let { coordinator.verifyEmailOtp(it, emailCode) }
+                        ?: coordinator.signIn(inviteCode, mfaCode)
+                    when (result) {
                         SignInResult.Authenticated -> Unit
                         SignInResult.Cancelled -> Unit
+                        is SignInResult.EmailVerificationRequired -> {
+                            emailChallenge = result.challenge
+                            emailCode = ""
+                            inviteCode = ""
+                            mfaCode = ""
+                        }
+                        is SignInResult.MfaEnrollmentRequired -> {
+                            requiresMfaEnrollment = true
+                            message = null
+                            supportReference = result.supportReference
+                            inviteCode = ""
+                            mfaCode = ""
+                        }
                         is SignInResult.Failed -> {
                             message = result.message
                             supportReference = result.supportReference
@@ -256,9 +358,14 @@ private fun SignInScreen(container: AppContainer, returning: Boolean) {
                 }
             },
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(52.dp),
-            enabled = !isSigningIn && container.isApiConfigured,
+            enabled = !isSigningIn && container.isApiConfigured && !requiresMfaEnrollment &&
+                (emailChallenge?.let { emailCode.length == 6 } ?: inviteCode.isNotBlank()),
         ) {
-            if (isSigningIn) LoadingMessage("Signing in securely…") else Text("Continue with Google")
+            if (isSigningIn) {
+                LoadingMessage(if (emailChallenge == null) "Signing in securely…" else "Verifying email code…")
+            } else {
+                Text(if (emailChallenge == null) "Continue with Google" else "Verify email code")
+            }
         }
         if (!container.isApiConfigured) {
             Text(
@@ -268,7 +375,11 @@ private fun SignInScreen(container: AppContainer, returning: Boolean) {
             )
         }
         message?.let {
-            Text(it, modifier = Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.error)
+            Text(
+                it,
+                modifier = Modifier.padding(top = 12.dp).semantics { liveRegion = LiveRegionMode.Polite },
+                color = MaterialTheme.colorScheme.error,
+            )
         }
         if (supportReference.isNotBlank()) {
             Text(

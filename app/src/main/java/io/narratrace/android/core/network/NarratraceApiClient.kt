@@ -243,7 +243,7 @@ class NarratraceApiClient(
         response.use { decode(it, serializer) }
     }
 
-    private fun <T> decode(response: Response, serializer: KSerializer<T>): ApiResult<T> {
+    internal fun <T> decode(response: Response, serializer: KSerializer<T>): ApiResult<T> {
         val payload = response.body?.string().orEmpty()
         val headerSupportId = response.header(HEADER_SUPPORT_ID)
             ?: response.header(HEADER_REQUEST_ID)
@@ -287,7 +287,13 @@ class NarratraceApiClient(
         val message = failure.error.message.ifBlank { "Narratrace could not complete that request." }
 
         return when {
-            response.code == 401 -> ApiResult.Unauthorized(message, supportReference)
+            response.code == 401 -> ApiResult.Unauthorized(
+                message = message,
+                supportReference = supportReference,
+                code = failure.error.parsedCode,
+                rawCode = failure.error.code,
+                fieldName = failure.error.fieldName,
+            )
             response.code == 403 -> ApiResult.Forbidden(message, failure.error.fieldName, supportReference)
             response.code == 428 -> ApiResult.LegalAcceptanceRequired(message, supportReference)
             response.code == 429 -> ApiResult.RateLimited(

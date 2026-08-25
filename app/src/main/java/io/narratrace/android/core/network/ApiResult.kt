@@ -50,6 +50,9 @@ sealed interface ApiResult<out T> {
     data class Unauthorized(
         override val message: String,
         override val supportReference: String,
+        val code: ApiErrorCode = ApiErrorCode.AUTHENTICATION_REQUIRED,
+        val rawCode: String = "AUTHENTICATION_REQUIRED",
+        val fieldName: String? = null,
     ) : Failure
 
     /**

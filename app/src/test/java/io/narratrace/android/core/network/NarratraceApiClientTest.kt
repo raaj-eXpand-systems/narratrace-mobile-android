@@ -4,6 +4,11 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.serializer
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -135,6 +140,29 @@ class NarratraceApiClientTest {
         """.trimIndent()
         val failure = NarratraceJson.decodeFromString(ApiFailure.serializer(), body)
         assertEquals("scope", failure.error.fieldName)
+    }
+
+    @Test
+    fun `a 401 retains the authentication factor field`() {
+        val body = """
+            {"error":{"code":"AUTHENTICATION_REQUIRED","message":"Authenticator setup is required.","field":"mfaEnrollment"},
+             "meta":{"apiVersion":"1","requestId":"request-123","supportId":"support-123"}}
+        """.trimIndent()
+        val response = Response.Builder()
+            .request(Request.Builder().url("https://www.narratrace.io/api/v1/auth/native").build())
+            .protocol(Protocol.HTTP_1_1)
+            .code(401)
+            .message("Unauthorized")
+            .body(body.toResponseBody("application/json".toMediaType()))
+            .build()
+
+        val result = client("https://www.narratrace.io").decode(response, serializer<Profile>())
+
+        assertTrue(result is ApiResult.Unauthorized)
+        result as ApiResult.Unauthorized
+        assertEquals("mfaEnrollment", result.fieldName)
+        assertEquals(ApiErrorCode.AUTHENTICATION_REQUIRED, result.code)
+        assertEquals("support-123", result.supportReference)
     }
 }
 
