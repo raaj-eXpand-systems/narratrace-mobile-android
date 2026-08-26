@@ -499,13 +499,23 @@ private fun CustomerMoreScreen(
             onDismissRequest = { if (!revoking) pendingRevocation = null },
             title = { Text(if (revokeScope == RevokeScope.AllDevices) "Sign out everywhere?" else "Sign out on this device?") },
             text = {
-                Text(
-                    if (revokeScope == RevokeScope.AllDevices) {
-                        "Every Narratrace mobile session will be revoked. Each device must sign in again."
-                    } else {
-                        "This device's protected session will be revoked and removed."
-                    },
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        if (revokeScope == RevokeScope.AllDevices) {
+                            "Every Narratrace mobile session will be revoked. Each device must sign in again."
+                        } else {
+                            "This device's protected session will be revoked and removed."
+                        },
+                    )
+                    if (revoking) {
+                        Text(
+                            "Signing out securely. Please wait.",
+                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                    }
+                }
             },
             confirmButton = {
                 Button(
@@ -522,7 +532,13 @@ private fun CustomerMoreScreen(
                         }
                     },
                     enabled = !revoking,
-                ) { Text(if (revokeScope == RevokeScope.AllDevices) "Sign out everywhere" else "Sign out") }
+                ) {
+                    Text(
+                        if (revoking) "Signing out…"
+                        else if (revokeScope == RevokeScope.AllDevices) "Sign out everywhere"
+                        else "Sign out",
+                    )
+                }
             },
             dismissButton = { TextButton(onClick = { pendingRevocation = null }, enabled = !revoking) { Text("Cancel") } },
         )
@@ -638,7 +654,11 @@ private fun CustomerMoreScreen(
             Text("Closed accounts can be recovered for 30 days; inactive or terminated account data follows the 365-day retention policy.", style = MaterialTheme.typography.bodySmall)
         } } }
         revocationFailure?.let { failure -> item {
-            Text(failure.message, color = MaterialTheme.colorScheme.error)
+            Text(
+                failure.message,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
+                color = MaterialTheme.colorScheme.error,
+            )
             if (failure.supportReference.isNotBlank()) Text("Support reference: ${failure.supportReference}", style = MaterialTheme.typography.bodySmall)
         } }
         item {
