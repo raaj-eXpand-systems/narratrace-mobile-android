@@ -22,6 +22,11 @@ class OfflineDraftStore(private val file: File, private val cipher: CredentialCi
     }
     @Synchronized fun save(draft: OfflineLetterDraft): Boolean = write(load().filterNot { it.clientDraftId == draft.clientDraftId } + draft)
     @Synchronized fun remove(id: String): Boolean = write(load().filterNot { it.clientDraftId == id })
+    @Synchronized fun purgeAccountData(): Boolean {
+        val fileRemoved = runCatching { !file.exists() || file.delete() }.getOrDefault(false)
+        val keyDestroyed = (cipher as? io.narratrace.android.core.auth.KeystoreCredentialCipher)?.destroyKey() ?: true
+        return fileRemoved && keyDestroyed
+    }
     private fun write(value: List<OfflineLetterDraft>): Boolean = runCatching {
         file.parentFile?.mkdirs(); val bytes = cipher.encrypt(NarratraceJson.encodeToString(value).encodeToByteArray()) ?: return false
         val temp = File(file.parentFile, file.name + ".tmp"); temp.writeBytes(bytes); if (!temp.renameTo(file)) { temp.delete(); false } else true

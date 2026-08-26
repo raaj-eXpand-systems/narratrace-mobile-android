@@ -23,8 +23,8 @@ import kotlinx.serialization.serializer
 )
 @Serializable data class PreferencesResponse(val preferences: NotificationPreferences)
 @Serializable data class MediaAiPreferences(
-    @SerialName("photo_ai_insights_enabled") val photoAiInsightsEnabled: Boolean = true,
-    @SerialName("video_ai_insights_enabled") val videoAiInsightsEnabled: Boolean = true,
+    @SerialName("photo_ai_insights_enabled") val photoAiInsightsEnabled: Boolean = false,
+    @SerialName("video_ai_insights_enabled") val videoAiInsightsEnabled: Boolean = false,
 )
 @Serializable data class MediaAiPreferencesResponse(val preferences: MediaAiPreferences)
 @Serializable private data class MediaAiPreferencePatch(

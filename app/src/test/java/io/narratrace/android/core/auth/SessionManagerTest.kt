@@ -155,6 +155,20 @@ class SessionManagerTest {
         assertTrue(!manager.adopt(TokenPair("a", "r", "nonsense"), "account-9"))
     }
 
+    @Test
+    fun `terminal account purge stays locked if credential removal fails`() = runTest {
+        val manager = manager(session(), failClear = true) { ApiResult.Offline() }
+        assertTrue(!manager.purgeAccountSession())
+        assertTrue(manager.state.value is AuthState.Authenticated)
+    }
+
+    @Test
+    fun `terminal account purge removes credentials before signing out`() = runTest {
+        val manager = manager(session()) { ApiResult.Offline() }
+        assertTrue(manager.purgeAccountSession())
+        assertTrue(manager.state.value is AuthState.SignedOut)
+    }
+
     // ── harness ──────────────────────────────────────────────────────────────
 
     private fun instant(millis: Long): String =
@@ -165,6 +179,7 @@ class SessionManagerTest {
     private fun manager(
         initial: MobileSession,
         restoreFirst: Boolean = true,
+        failClear: Boolean = false,
         refresh: suspend (String) -> ApiResult<TokenPair>,
     ): SessionManager {
         val cipher = object : CredentialCipher {
@@ -175,7 +190,7 @@ class SessionManagerTest {
         val blob = object : EncryptedBlobStore {
             override fun read() = stored
             override fun write(bytes: ByteArray): Boolean { stored = bytes; return true }
-            override fun clear(): Boolean { stored = null; return true }
+            override fun clear(): Boolean { if (failClear) return false; stored = null; return true }
         }
         val store = SessionStore(cipher, blob)
         store.save(initial)

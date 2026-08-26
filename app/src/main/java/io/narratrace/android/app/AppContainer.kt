@@ -24,6 +24,7 @@ import io.narratrace.android.core.letters.LettersApi
 import io.narratrace.android.core.letters.LettersRepository
 import io.narratrace.android.core.family.FamilyApi
 import io.narratrace.android.core.family.FamilyRepository
+import io.narratrace.android.core.account.AccountLifecycleApi
 import io.narratrace.android.core.settings.AppearanceStore
 import io.narratrace.android.core.settings.SettingsApi
 import io.narratrace.android.core.settings.SettingsRepository
@@ -84,6 +85,7 @@ class AppContainer(context: Context) {
 
     val authApi: AuthApi by lazy { AuthApi(apiClient) }
     val customerApi: CustomerApi by lazy { CustomerApi(apiClient) }
+    val accountLifecycleApi: AccountLifecycleApi by lazy { AccountLifecycleApi(apiClient) }
     val securityRepository: SecurityRepository by lazy { SecurityRepository(authApi, sessionManager) }
 
     val sessionManager: SessionManager by lazy {
@@ -122,6 +124,19 @@ class AppContainer(context: Context) {
         OfflineApi(apiClient), sessionManager,
         OfflineDraftStore(File(appContext.filesDir, "protected-drafts.bin"), KeystoreCredentialCipher("io.narratrace.android.drafts.v1")),
     ) }
+
+    /** Applies the server's terminal local-data disposition without retaining a duplicate path. */
+    fun purgeAccountLocalData(): Boolean {
+        val mediaPurged = mediaRepository.queue.purgeAccountData()
+        val draftsPurged = offlineRepository.store.purgeAccountData()
+        val supportPurged = supportPreferences.edit().clear().commit()
+        val modesPurged = appContext.getSharedPreferences("interview-modes.v1", Context.MODE_PRIVATE).edit().clear().commit()
+        val capturesPurged = appContext.cacheDir.listFiles()
+            ?.filter { it.name.startsWith("capture-") }
+            ?.all { !it.exists() || it.delete() } ?: true
+        val sessionPurged = sessionManager.purgeAccountSession()
+        return mediaPurged && draftsPurged && supportPurged && modesPurged && capturesPurged && sessionPurged
+    }
 
     fun authenticationCoordinator(context: Context): AuthenticationCoordinator =
         AuthenticationCoordinator(

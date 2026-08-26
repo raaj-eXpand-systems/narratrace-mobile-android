@@ -60,7 +60,12 @@ class MediaAndInterviewRepository(
     suspend fun interview(id: String) = call { api.interview(id, it) }
     suspend fun capacity() = call { api.capacity(it) }
     suspend fun legal() = call { api.legal(it) }
-    suspend fun acceptLegal() = call { api.acceptLegal(it) }
+    suspend fun acceptTerms() = call { api.acceptTerms(it) }
+    suspend fun acknowledgePrivacy() = call { api.acknowledgePrivacy(it) }
+    suspend fun acknowledgeAiNotice() = call { api.acknowledgeAiNotice(it) }
+    suspend fun attestContentRights() = call { api.attestContentRights(it) }
+    suspend fun grantSpecialCategoryConsent() = call { api.grantSpecialCategoryConsent(it) }
+    suspend fun withdrawSpecialCategoryConsent() = call { api.withdrawSpecialCategoryConsent(it) }
     suspend fun createInterview(name: String, relation: String?, decade: Int?, key: String): FeatureResult<InterviewCreation> {
         if (name.trim().isEmpty() || name.trim().length > 120 || decade !in setOf(null, 0,10,20,30,40,50,60,70,80,90,100)) {
             return FeatureResult.Unavailable("Enter a valid person and life chapter.")

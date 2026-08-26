@@ -36,11 +36,17 @@ import kotlinx.serialization.serializer
     val remainingBytes: Long, val remainingLabel: String, val audioMaxSeconds: Int, val videoMaxSeconds: Int,
 )
 @Serializable data class LegalAcceptance(
-    val termsAccepted: Boolean, val aiNoticeAcknowledged: Boolean,
+    val termsAccepted: Boolean, val privacyAcknowledged: Boolean, val aiNoticeAcknowledged: Boolean,
+    val specialCategoryConsent: Boolean, val contentRightsAttested: Boolean,
     val termsVersion: String, val privacyVersion: String, val aiNoticeVersion: String,
+    val contentRightsVersion: String, val acceptedAt: String? = null,
 )
-@Serializable private data class LegalAcknowledgement(
-    val acceptTerms: Boolean = true, val acknowledgePrivacy: Boolean = true, val acknowledgeAiNotice: Boolean = true,
+@Serializable internal data class LegalAcknowledgement(
+    val acceptTerms: Boolean? = null,
+    val acknowledgePrivacy: Boolean? = null,
+    val acknowledgeAiNotice: Boolean? = null,
+    val attestContentRights: Boolean? = null,
+    val specialCategoryConsent: Boolean? = null,
 )
 @Serializable private data class InterviewStatus(val status: String)
 @Serializable data class InterviewMutation(val updated: Boolean? = null, val deleted: Boolean? = null)
@@ -101,8 +107,16 @@ class MediaAndInterviewApi(private val client: NarratraceApiClient) {
         "/api/v1/interviews/recording-capacity", serializer<RecordingCapacity>(), token,
     )
     suspend fun legal(token: String): ApiResult<LegalAcceptance> = client.get("/api/v1/legal/acceptance", serializer<LegalAcceptance>(), token)
-    suspend fun acceptLegal(token: String): ApiResult<LegalAcceptance> = client.post(
-        "/api/v1/legal/acceptance", NarratraceJson.encodeToString(LegalAcknowledgement()), serializer<LegalAcceptance>(), token,
+    suspend fun acceptTerms(token: String) = legalChoice(LegalAcknowledgement(acceptTerms = true), token)
+    suspend fun acknowledgePrivacy(token: String) = legalChoice(LegalAcknowledgement(acknowledgePrivacy = true), token)
+    suspend fun acknowledgeAiNotice(token: String) = legalChoice(LegalAcknowledgement(acknowledgeAiNotice = true), token)
+    suspend fun attestContentRights(token: String) = legalChoice(LegalAcknowledgement(attestContentRights = true), token)
+    suspend fun grantSpecialCategoryConsent(token: String) = legalChoice(LegalAcknowledgement(specialCategoryConsent = true), token)
+    suspend fun withdrawSpecialCategoryConsent(token: String): ApiResult<LegalAcceptance> = client.delete(
+        "/api/v1/legal/acceptance", serializer<LegalAcceptance>(), token,
+    )
+    private suspend fun legalChoice(choice: LegalAcknowledgement, token: String): ApiResult<LegalAcceptance> = client.post(
+        "/api/v1/legal/acceptance", NarratraceJson.encodeToString(choice), serializer<LegalAcceptance>(), token,
     )
     suspend fun status(id: String, status: String, token: String): ApiResult<InterviewMutation> = client.patch(
         "/api/v1/interviews/${segment(id)}", NarratraceJson.encodeToString(InterviewStatus(status)), serializer<InterviewMutation>(), token,

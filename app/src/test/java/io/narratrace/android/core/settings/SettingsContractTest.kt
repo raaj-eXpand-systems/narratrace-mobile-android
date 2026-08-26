@@ -22,4 +22,10 @@ class SettingsContractTest {
         assertFalse(response.preferences.letters)
         assertEquals(true, response.preferences.interviewAnniversary)
     }
+
+    @Test fun `missing media AI preferences fail closed to off`() {
+        val response = NarratraceJson.decodeFromString<MediaAiPreferencesResponse>("""{"preferences":{}}""")
+        assertFalse(response.preferences.photoAiInsightsEnabled)
+        assertFalse(response.preferences.videoAiInsightsEnabled)
+    }
 }

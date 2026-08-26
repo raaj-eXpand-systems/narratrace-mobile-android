@@ -60,4 +60,14 @@ class ProtectedMediaQueueTest {
         assertTrue(queue.acknowledgeAndRemove(item.id))
         assertFalse(directory.resolve(item.encryptedFilename).exists())
     }
+
+    @Test fun `account purge removes every staged media artifact`() {
+        val directory = Files.createTempDirectory("media-purge").toFile()
+        val queue = ProtectedMediaQueue(directory, cipher)
+        assertTrue(queue.enqueue("private photo".encodeToByteArray(), PendingMediaKind.Photo, "photo.jpg", "image/jpeg") != null)
+
+        assertTrue(queue.purgeAccountData())
+        assertFalse(directory.exists())
+        assertTrue(queue.items().isEmpty())
+    }
 }

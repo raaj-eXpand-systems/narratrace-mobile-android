@@ -139,6 +139,13 @@ class ProtectedMediaQueue(private val directory: File, private val cipher: Crede
         return if (target.chunked) file.deleteRecursively() || !file.exists() else file.delete() || !file.exists()
     }
 
+    /** Permanently removes every account-bound staged artefact and its key. */
+    @Synchronized fun purgeAccountData(): Boolean {
+        val filesRemoved = runCatching { !directory.exists() || directory.deleteRecursively() }.getOrDefault(false)
+        val keyDestroyed = (cipher as? io.narratrace.android.core.auth.KeystoreCredentialCipher)?.destroyKey() ?: true
+        return filesRemoved && keyDestroyed
+    }
+
     private fun save(value: List<PendingMedia>): Boolean {
         directory.mkdirs()
         val encrypted = cipher.encrypt(NarratraceJson.encodeToString(value).encodeToByteArray()) ?: return false

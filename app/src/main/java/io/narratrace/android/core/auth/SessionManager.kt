@@ -192,6 +192,13 @@ class SessionManager(
         store.clear(destroyKey = true)
         _state.value = AuthState.SignedOut
     }
+
+    /** Terminal account deletion must not claim completion while credentials remain. */
+    fun purgeAccountSession(): Boolean {
+        val purged = store.clear(destroyKey = true)
+        if (purged) _state.value = AuthState.SignedOut
+        return purged
+    }
 }
 
 /**

@@ -20,4 +20,14 @@ class OfflineDraftStoreTest {
         assertEquals("Private story", store.load().single().body)
         assertTrue(store.remove(draft.clientDraftId)); assertTrue(store.load().isEmpty())
     }
+
+    @Test fun `account purge removes encrypted drafts`() {
+        val file = Files.createTempDirectory("draft-purge").resolve("drafts.bin").toFile()
+        val store = OfflineDraftStore(file, cipher)
+        assertTrue(store.save(OfflineLetterDraft(recipientName = "Maya", subject = "Later", body = "Private story")))
+
+        assertTrue(store.purgeAccountData())
+        assertFalse(file.exists())
+        assertTrue(store.load().isEmpty())
+    }
 }

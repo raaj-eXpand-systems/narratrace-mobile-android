@@ -56,6 +56,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -87,6 +88,11 @@ import io.narratrace.android.core.auth.SignInResult
 import io.narratrace.android.core.auth.RevokeScope
 import io.narratrace.android.core.auth.RevocationResult
 import io.narratrace.android.core.auth.SecuritySessionsResult
+import io.narratrace.android.core.auth.TokenLease
+import io.narratrace.android.core.account.AccountLifecycleSignal
+import io.narratrace.android.core.account.allowsOrdinaryAccess
+import io.narratrace.android.core.account.requiresLocalPurge
+import io.narratrace.android.core.account.safeAppealUrl
 import io.narratrace.android.core.customer.CustomerHome
 import io.narratrace.android.core.customer.CustomerHomeResult
 import io.narratrace.android.core.customer.CustomerMemoriesResult
@@ -109,6 +115,7 @@ import io.narratrace.android.core.letters.LetterSummary
 import io.narratrace.android.core.delivery.DeliveryMode
 import io.narratrace.android.core.support.FeedbackScreenshot
 import io.narratrace.android.core.support.ProcessingJob
+import io.narratrace.android.core.network.ApiResult
 import java.time.LocalDateTime
 import io.narratrace.android.core.ui.NarratraceAppearance
 import java.util.UUID
@@ -143,11 +150,18 @@ fun NarratraceApp(container: AppContainer) {
         AuthState.Restoring -> ProtectedLoadingScreen()
         AuthState.SignedOut -> SignInScreen(container = container, returning = false)
         is AuthState.Locked -> SignInScreen(container = container, returning = true)
-        is AuthState.Authenticated -> AuthenticatedShell(
+        is AuthState.Authenticated -> AccountLifecycleGate(
             container = container,
-            onInteraction = container.sessionManager::touch,
-            onSignOut = container.sessionManager::signOut,
-        )
+            accessCredential = (authState as AuthState.Authenticated).session.accessToken,
+        ) {
+            RequiredLegalGate(container) {
+                AuthenticatedShell(
+                    container = container,
+                    onInteraction = container.sessionManager::touch,
+                    onSignOut = container.sessionManager::signOut,
+                )
+            }
+        }
     }
 }
 
@@ -175,6 +189,137 @@ private fun ProtectedLoadingScreen() {
     ) {
         LoadingMessage("Checking your protected session…")
     }
+}
+
+@Composable
+private fun AccountLifecycleGate(
+    container: AppContainer,
+    accessCredential: String,
+    content: @Composable () -> Unit,
+) {
+    var result by remember(accessCredential) { mutableStateOf<ApiResult<AccountLifecycleSignal>?>(null) }
+    var refresh by remember { mutableIntStateOf(0) }
+    var localPurgeFailed by remember { mutableStateOf(false) }
+    LaunchedEffect(accessCredential, refresh) { result = container.accountLifecycleApi.signal(accessCredential) }
+    when (val current = result) {
+        null -> ProtectedLoadingScreen()
+        is ApiResult.Unauthorized -> {
+            // A valid active access credential returns a 200 lifecycle response.
+            // A 401 is therefore an expired or unrecognised credential: rotate once,
+            // never treat it as proof that ordinary product access is allowed.
+            LaunchedEffect(accessCredential, refresh) {
+                when (container.sessionManager.recoverFromUnauthorized(accessCredential)) {
+                    TokenLease.Unavailable -> result = ApiResult.Offline()
+                    else -> Unit // Rotation or sign-out updates authState and re-keys this gate.
+                }
+            }
+            ProtectedLoadingScreen()
+        }
+        is ApiResult.Success -> when {
+            current.value.requiresLocalPurge() -> {
+                LaunchedEffect(current.value.state, refresh) { localPurgeFailed = !container.purgeAccountLocalData() }
+                if (localPurgeFailed) LifecycleCheckFailure("Protected local account data could not be removed safely. Narratrace has kept the app locked.") { localPurgeFailed = false; refresh++ }
+                else ProtectedLoadingScreen()
+            }
+            current.value.allowsOrdinaryAccess() -> content()
+            else -> RestrictedLifecycleScreen(current.value) { refresh++ }
+        }
+        is ApiResult.Failure -> LifecycleCheckFailure(current.message) { refresh++ }
+    }
+}
+
+@Composable
+private fun RestrictedLifecycleScreen(signal: AccountLifecycleSignal, retry: () -> Unit) {
+    val context = LocalContext.current
+    val label = when (signal.state) {
+        "closure_pending" -> "Account closure in recovery"
+        "suspended" -> "Account access suspended"
+        "company_terminated" -> "Account access terminated"
+        "legal_hold" -> "Account access restricted"
+        else -> "Account access unavailable"
+    }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.Center) {
+        Text(label, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
+        Text(
+            if (signal.state == "closure_pending") "Your encrypted local drafts remain on this device during the recovery period. Ordinary account access and sharing are disabled."
+            else "Ordinary product access is disabled. Your account and privacy controls remain available.",
+            Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        signal.recoveryEndsAt?.let { Text("Recovery ends: $it", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall) }
+        signal.appealStatus.takeIf { it in setOf("available", "submitted") }?.let { Text("Appeal status: ${it.replace('_', ' ')}", Modifier.padding(top = 8.dp)) }
+        signal.safeAppealUrl()?.let { appealUrl ->
+            Button(
+                { context.startActivity(Intent(Intent.ACTION_VIEW, appealUrl.toUri())) },
+                Modifier.fillMaxWidth().padding(top = 12.dp),
+            ) { Text(if (signal.appealStatus == "submitted") "View appeal status" else "Submit an appeal") }
+        }
+        Button({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account".toUri())) }, Modifier.fillMaxWidth().padding(top = 20.dp)) { Text("Open account and recovery controls") }
+        Button({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account#export".toUri())) }, Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Export my data") }
+        TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://getnarratrace.com/privacy".toUri())) }, Modifier.fillMaxWidth()) { Text("Privacy and data-rights information") }
+        TextButton(retry, Modifier.fillMaxWidth()) { Text("Check account status again") }
+    }
+}
+
+@Composable
+private fun LifecycleCheckFailure(message: String, retry: () -> Unit) {
+    val context = LocalContext.current
+    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
+        Text("Account status unavailable", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
+        Text(message, Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.error)
+        Button(retry, Modifier.fillMaxWidth().padding(top = 20.dp)) { Text("Try again") }
+        TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account".toUri())) }, Modifier.fillMaxWidth()) { Text("Account and privacy controls") }
+    }
+}
+
+internal fun requiredLegalAcceptanceComplete(value: io.narratrace.android.core.media.LegalAcceptance): Boolean =
+    value.termsAccepted && value.privacyAcknowledged && value.contentRightsAttested
+
+@Composable
+private fun RequiredLegalGate(container: AppContainer, content: @Composable () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var result by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.media.LegalAcceptance>?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var refresh by remember { mutableIntStateOf(0) }
+    LaunchedEffect(refresh) { result = container.mediaRepository.legal() }
+    val accepted = (result as? FeatureResult.Success)?.value
+    if (accepted != null && requiredLegalAcceptanceComplete(accepted)) { content(); return }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { Text("Review current legal terms", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
+        item { Text("The updated Terms clarify account and content responsibilities, service limitations, liability, dispute rules, and how material policy changes are accepted.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        when (val current = result) {
+            null -> item { LoadingMessage("Checking current document versions…") }
+            FeatureResult.AuthenticationRequired -> item { Text("Sign in again to review the current documents.", color = MaterialTheme.colorScheme.error) }
+            is FeatureResult.Unavailable -> item { Text(current.message, color = MaterialTheme.colorScheme.error); Button({ refresh++ }) { Text("Try again") } }
+            is FeatureResult.Success -> {
+                val legal = current.value
+                if (!legal.termsAccepted) item { LegalChoiceCard("Terms of Service", legal.termsVersion, "Read the complete Terms before accepting.", "https://getnarratrace.com/terms", "Accept current Terms", busy) {
+                    busy = true; scope.launch { result = container.mediaRepository.acceptTerms(); busy = false }
+                } }
+                if (!legal.privacyAcknowledged) item { LegalChoiceCard("Privacy Policy", legal.privacyVersion, "Acknowledge that you received and reviewed the current Privacy Policy. This is not consent to optional processing.", "https://getnarratrace.com/privacy", "Acknowledge Privacy Policy", busy) {
+                    busy = true; scope.launch { result = container.mediaRepository.acknowledgePrivacy(); busy = false }
+                } }
+                if (!legal.contentRightsAttested) item { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Content rights · ${legal.contentRightsVersion}", style = MaterialTheme.typography.titleMedium)
+                    Text("I represent that I own, or have all necessary licenses, permissions, privacy and publicity rights, and recording consent for content I upload or record in Narratrace, including content involving other people or minors.")
+                    Button({ busy = true; scope.launch { result = container.mediaRepository.attestContentRights(); busy = false } }, enabled = !busy) { Text("Attest content rights") }
+                } } }
+            }
+        }
+        item { Text("You can still use account, export, cancellation, deletion, and privacy controls without making these choices.", style = MaterialTheme.typography.bodySmall) }
+        item { TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account".toUri())) }, Modifier.fillMaxWidth()) { Text("Account and privacy controls") } }
+    }
+}
+
+@Composable
+private fun LegalChoiceCard(title: String, version: String, explanation: String, url: String, action: String, busy: Boolean, choose: () -> Unit) {
+    val context = LocalContext.current
+    Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("$title · $version", style = MaterialTheme.typography.titleMedium)
+        Text(explanation)
+        TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }) { Text("Read $title") }
+        Button(choose, enabled = !busy) { Text(action) }
+    } }
 }
 
 @Composable
@@ -637,7 +782,7 @@ private fun CustomerMoreScreen(
             Text("Open secure account management", style = MaterialTheme.typography.titleMedium)
             Text("Request an archive, manage billing, or review closure and recovery on the authenticated website. Signing out does not delete your account.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Your plan and billing status refresh automatically when you return.", style = MaterialTheme.typography.bodySmall)
-            Text("Closed accounts can be recovered for 30 days; inactive or terminated account data follows the 365-day retention policy.", style = MaterialTheme.typography.bodySmall)
+            Text("Customer-requested closure has a 30-day recovery period. Subscription lapse is a separate archive-review state and does not by itself authorize automatic deletion.", style = MaterialTheme.typography.bodySmall)
         } } }
         revocationFailure?.let { failure -> item {
             Text(
@@ -676,6 +821,7 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
     var profile by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.settings.ProfileResponse>?>(null) }
     var preferences by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.settings.PreferencesResponse>?>(null) }
     var mediaAiPreferences by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.settings.MediaAiPreferencesResponse>?>(null) }
+    var legal by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.media.LegalAcceptance>?>(null) }
     var name by remember { mutableStateOf("") }; var birthYear by remember { mutableStateOf("") }; var language by remember { mutableStateOf("en") }
     var busy by remember { mutableStateOf(false) }; var message by remember { mutableStateOf<String?>(null) }
     fun registerPush() {
@@ -686,7 +832,7 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
             .addOnFailureListener { message = "Push registration is unavailable."; busy = false }
     }
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) registerPush() else message = "Notification permission was not granted." }
-    LaunchedEffect(Unit) { profile = container.settingsRepository.profile(); preferences = container.settingsRepository.preferences(); mediaAiPreferences = container.settingsRepository.mediaAiPreferences(); (profile as? FeatureResult.Success)?.value?.profile?.let { name = it.displayName; birthYear = it.birthYear?.toString().orEmpty(); language = it.preferredLanguage } }
+    LaunchedEffect(Unit) { profile = container.settingsRepository.profile(); preferences = container.settingsRepository.preferences(); mediaAiPreferences = container.settingsRepository.mediaAiPreferences(); legal = container.mediaRepository.legal(); (profile as? FeatureResult.Success)?.value?.profile?.let { name = it.displayName; birthYear = it.birthYear?.toString().orEmpty(); language = it.preferredLanguage } }
     val latestBirthYear = java.time.Year.now().value - 5
     val birthYearValid = birthYear.isEmpty() || (birthYear.length == 4 && birthYear.toIntOrNull()?.let { it in 1900..latestBirthYear } == true)
     BackHandler(onBack = close)
@@ -703,11 +849,22 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
         item { Text("Upcoming themes", style = MaterialTheme.typography.titleMedium) }
         items(listOf(NarratraceAppearance.UpcomingPreview, NarratraceAppearance.ChaiLatte), key = { it.name }) { appearance -> Button(onClick = { if (container.appearanceStore.save(appearance)) (context as? Activity)?.recreate() }, Modifier.fillMaxWidth()) { Text(appearance.name.replace("UpcomingPreview", "Narratrace Blue").replace("ChaiLatte", "Chai Latte") + if (container.appearanceStore.load() == appearance) " ✓" else "") } }
         item { Text("Nia media insights", style = MaterialTheme.typography.titleLarge) }
-        item { Text("Choose separately whether Nia may process future photos and videos. Both choices are on by default; turning one off keeps that media usable without sending it for AI analysis.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text("Photo and video insights are off by default. Enable each purpose separately only if you want future media sent for that AI analysis. Turning either off keeps the media usable.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         (mediaAiPreferences as? FeatureResult.Success)?.value?.preferences?.let { prefs ->
             val choices = listOf("photo_ai_insights_enabled" to ("Photo insights" to prefs.photoAiInsightsEnabled), "video_ai_insights_enabled" to ("Video insights" to prefs.videoAiInsightsEnabled))
             items(choices, key = { it.first }) { choice -> Button(onClick = { busy = true; scope.launch { mediaAiPreferences = container.settingsRepository.updateMediaAiPreference(choice.first, !choice.second.second); busy = false } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(choice.second.first + if (choice.second.second) " ✓" else "") } }
         }
+        item { Text("Sensitive story information", style = MaterialTheme.typography.titleMedium) }
+        item { Text("This separate optional consent allows Nia to process story details that may reveal sensitive information. Withdrawing it stops future AI interview processing; preserved content remains available.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Button(onClick = { busy = true; scope.launch {
+            val current = (legal as? FeatureResult.Success)?.value
+            val changed = if (current?.specialCategoryConsent == true) container.mediaRepository.withdrawSpecialCategoryConsent() else container.mediaRepository.grantSpecialCategoryConsent()
+            legal = changed
+            message = if (changed is FeatureResult.Success) if (changed.value.specialCategoryConsent) "Sensitive-story consent enabled." else "Sensitive-story consent withdrawn." else "Consent choice could not be updated."
+            busy = false
+        } }, enabled = !busy && legal is FeatureResult.Success, modifier = Modifier.fillMaxWidth()) {
+            Text(if ((legal as? FeatureResult.Success)?.value?.specialCategoryConsent == true) "Withdraw sensitive-story consent" else "Enable sensitive-story consent")
+        } }
         item { Text("Notification preferences", style = MaterialTheme.typography.titleLarge) }
         (preferences as? FeatureResult.Success)?.value?.preferences?.let { prefs ->
             val choices = listOf("processing_ready" to ("Processing ready" to prefs.processingReady), "invitations" to ("Invitations" to prefs.invitations), "letters" to ("Letters" to prefs.letters), "trial_and_billing" to ("Plan and billing" to prefs.trialAndBilling), "product_guidance" to ("Product guidance" to prefs.productGuidance))
@@ -1146,9 +1303,18 @@ private fun GuidedInterviewsScreen(container: AppContainer, modifier: Modifier, 
         item { Text("Nia uses your responses to suggest thoughtful follow-up questions. AI may make mistakes; review generated material before relying on or sharing it.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (legal is FeatureResult.Success && !(legal as FeatureResult.Success<io.narratrace.android.core.media.LegalAcceptance>).value.aiNoticeAcknowledged) {
             item { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Review required", style = MaterialTheme.typography.titleMedium)
-                Text("By continuing, you accept the current Terms and Privacy Policy and acknowledge the AI notice.")
-                Button(onClick = { accepting = true; scope.launch { legal = container.mediaRepository.acceptLegal(); accepting = false } }, enabled = !accepting) { Text("Accept and continue") }
+                Text("AI notice · ${(legal as FeatureResult.Success<io.narratrace.android.core.media.LegalAcceptance>).value.aiNoticeVersion}", style = MaterialTheme.typography.titleMedium)
+                Text("Nia uses your responses to generate follow-up questions, transcripts, summaries, insights, and requested narratives. AI can make mistakes; review results before relying on or sharing them.")
+                val context = LocalContext.current
+                TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, "https://getnarratrace.com/terms#ai-generated-content".toUri())) }) { Text("Read the AI notice") }
+                Button(onClick = { accepting = true; scope.launch { legal = container.mediaRepository.acknowledgeAiNotice(); accepting = false } }, enabled = !accepting) { Text("Acknowledge AI notice") }
+            } } }
+        }
+        if (legal is FeatureResult.Success && !(legal as FeatureResult.Success<io.narratrace.android.core.media.LegalAcceptance>).value.specialCategoryConsent) {
+            item { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Optional sensitive-story consent", style = MaterialTheme.typography.titleMedium)
+                Text("Guided interviews may reveal sensitive information about health, beliefs, identity, or family history. Allow this processing only if you want to use Nia for these interviews. This consent is separate and can be withdrawn in Profile and preferences.")
+                Button(onClick = { accepting = true; scope.launch { legal = container.mediaRepository.grantSpecialCategoryConsent(); accepting = false } }, enabled = !accepting) { Text("Allow sensitive-story processing") }
             } } }
         }
         item { OutlinedTextField(name, { name = it.take(120); key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth(), label = { Text("Who is this story about?") }, singleLine = true) }
@@ -1158,7 +1324,7 @@ private fun GuidedInterviewsScreen(container: AppContainer, modifier: Modifier, 
                 is FeatureResult.Success -> { name = ""; relation = ""; key = UUID.randomUUID().toString(); selected = made.value.interview }
                 else -> Unit
             }; creating = false
-        } }, modifier = Modifier.fillMaxWidth(), enabled = !creating && name.trim().isNotEmpty() && (legal as? FeatureResult.Success)?.value?.aiNoticeAcknowledged == true) { Text("Start interview") } }
+        } }, modifier = Modifier.fillMaxWidth(), enabled = !creating && name.trim().isNotEmpty() && (legal as? FeatureResult.Success)?.value?.let { it.aiNoticeAcknowledged && it.specialCategoryConsent } == true) { Text("Start interview") } }
         item { Text("Your interviews", style = MaterialTheme.typography.titleLarge) }
         when (val loaded = result) {
             null -> item { LoadingMessage("Refreshing your interviews…") }
