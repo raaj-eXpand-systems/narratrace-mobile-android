@@ -6,6 +6,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import io.narratrace.android.app.requiredLegalAcceptanceComplete
+import io.narratrace.android.app.COOKIE_POLICY_URL
+import io.narratrace.android.app.PRIVACY_POLICY_URL
+import io.narratrace.android.app.TERMS_POLICY_URL
 
 class MediaAndInterviewContractTest {
     @Test fun `interview contract tolerates additive fields`() {
@@ -28,11 +31,19 @@ class MediaAndInterviewContractTest {
         val accepted = LegalAcceptance(
             termsAccepted = true, privacyAcknowledged = true, aiNoticeAcknowledged = false,
             specialCategoryConsent = false, contentRightsAttested = true,
-            termsVersion = "2026-08-26", privacyVersion = "2026-06",
+            termsVersion = "2026-08-26.1", privacyVersion = "2026-08-26.1",
             aiNoticeVersion = "2026-08-26", contentRightsVersion = "2026-08-26",
         )
         assertTrue(requiredLegalAcceptanceComplete(accepted))
         assertFalse(requiredLegalAcceptanceComplete(accepted.copy(contentRightsAttested = false)))
+        assertFalse(requiredLegalAcceptanceComplete(accepted.copy(termsAccepted = false)))
+        assertFalse(requiredLegalAcceptanceComplete(accepted.copy(privacyAcknowledged = false)))
+    }
+
+    @Test fun `customer policy links use the canonical public routes`() {
+        assertEquals("https://getnarratrace.com/terms", TERMS_POLICY_URL)
+        assertEquals("https://getnarratrace.com/privacy", PRIVACY_POLICY_URL)
+        assertEquals("https://getnarratrace.com/cookies", COOKIE_POLICY_URL)
     }
 
     @Test fun `legal choices serialize separately and never bundle optional consent`() {

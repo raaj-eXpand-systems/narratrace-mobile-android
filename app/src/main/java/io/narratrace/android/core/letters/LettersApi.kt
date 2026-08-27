@@ -10,14 +10,15 @@ import kotlinx.serialization.serializer
 
 @Serializable data class LetterSummary(
     val id: String, val recipientName: String, val subject: String, val unlockAt: String,
-    val delivered: Boolean, val recipientVerified: Boolean, val isOwner: Boolean, val createdAt: String,
+    val delivered: Boolean, val recipientVerified: Boolean, val deliveryState: String,
+    val sharedDeliveryManaged: Boolean, val isOwner: Boolean, val createdAt: String,
 )
 @Serializable data class LetterList(val letters: List<LetterSummary>)
 @Serializable data class LetterCreation(val id: String, val replayed: Boolean, val verificationPending: Boolean)
 @Serializable data class LetterDetail(
     val id: String, val recipientName: String, val recipientEmail: String? = null, val subject: String,
     val unlockAt: String, val delivered: Boolean, val recipientVerified: Boolean, val createdAt: String,
-    val hasAudio: Boolean, val isOwner: Boolean, val sharedDeliveryManaged: Boolean, val canCancel: Boolean,
+    val deliveryState: String, val hasAudio: Boolean, val isOwner: Boolean, val sharedDeliveryManaged: Boolean, val canCancel: Boolean,
     val unlocked: Boolean, val body: String? = null,
 )
 @Serializable data class LetterDetailResponse(val letter: LetterDetail)
@@ -29,10 +30,37 @@ import kotlinx.serialization.serializer
     val deliverTimezone: String? = null, val deliverLocalDatetime: String? = null,
 )
 @Serializable data class ArtifactDelivery(
-    val id: String, val uploadId: Int? = null, val keepsakeBookId: String? = null, val artifactKind: String, val recipientName: String,
+    val id: String, val uploadId: Int? = null, val letterId: String? = null, val keepsakeBookId: String? = null, val artifactKind: String, val recipientName: String,
     val recipientEmail: String, val selfDelivery: Boolean, val deliverAt: String, val state: String,
     val revokedAt: String? = null, val createdAt: String? = null,
 )
+
+/** Presentation follows the authoritative server state and fails closed on inconsistency. */
+internal fun letterDeliveryStatus(
+    state: String, recipientVerified: Boolean, delivered: Boolean, unlockAt: String,
+): String = when (state) {
+    "delivered" -> if (recipientVerified && delivered) "Delivered" else "Delivery status unavailable · recipient cannot access"
+    "scheduled" -> if (recipientVerified) "Private until $unlockAt" else "Delivery status unavailable · recipient cannot access"
+    "delivering" -> if (recipientVerified) "Secure delivery in progress" else "Delivery status unavailable · recipient cannot access"
+    "pending_verification" -> "Recipient confirmation pending · no content shared"
+    "revoked", "declined" -> "Delivery revoked · recipient cannot access"
+    "failed" -> "Delivery failed · recipient cannot access"
+    else -> "Delivery status unavailable · recipient cannot access"
+}
+
+internal fun ArtifactDelivery.statusLabel(): String = when {
+    revokedAt != null || state in setOf("revoked", "declined") -> "Revoked · recipient cannot access"
+    state == "pending_verification" -> "Recipient confirmation pending · no content shared"
+    state == "scheduled" -> "Scheduled · private until $deliverAt"
+    state == "delivering" -> "Secure delivery in progress"
+    state == "delivered" -> "Delivered"
+    state == "failed" -> "Delivery failed · recipient cannot access"
+    else -> "Delivery status unavailable · recipient cannot access"
+}
+
+/** A recipient-side inconsistency must never expose Letter content. */
+internal fun LetterDetail.canDisplayContent(): Boolean =
+    body != null && (isOwner || (unlocked && recipientVerified))
 @Serializable data class ArtifactDeliveryList(val deliveries: List<ArtifactDelivery>)
 @Serializable data class Revocation(val revoked: Boolean)
 @Serializable data class ArtifactDeliveryCreation(val kind: String, val delivery: ArtifactDelivery)

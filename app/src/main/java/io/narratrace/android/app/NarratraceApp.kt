@@ -112,6 +112,9 @@ import io.narratrace.android.core.media.PendingMediaKind
 import io.narratrace.android.core.media.SecureAudioRecorder
 import io.narratrace.android.core.media.ProtectedUploadWorker
 import io.narratrace.android.core.letters.LetterSummary
+import io.narratrace.android.core.letters.letterDeliveryStatus
+import io.narratrace.android.core.letters.statusLabel
+import io.narratrace.android.core.letters.canDisplayContent
 import io.narratrace.android.core.delivery.DeliveryMode
 import io.narratrace.android.core.support.FeedbackScreenshot
 import io.narratrace.android.core.support.ProcessingJob
@@ -123,6 +126,10 @@ import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+
+internal const val TERMS_POLICY_URL = "https://getnarratrace.com/terms"
+internal const val PRIVACY_POLICY_URL = "https://getnarratrace.com/privacy"
+internal const val COOKIE_POLICY_URL = "https://getnarratrace.com/cookies"
 
 private fun InputStream.readBounded(maximum: Int): ByteArray? {
     val output = ByteArrayOutputStream(minOf(maximum, 64 * 1024))
@@ -241,7 +248,7 @@ private fun RestrictedLifecycleScreen(signal: AccountLifecycleSignal, retry: () 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.Center) {
         Text(label, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
         Text(
-            if (signal.state == "closure_pending") "Your encrypted local drafts remain on this device during the recovery period. Ordinary account access and sharing are disabled."
+            if (signal.state == "closure_pending") "Your encrypted local drafts remain on this device during the 30-day recovery period. Ordinary account access and sharing are disabled. A routine account closure cannot skip this recovery period."
             else "Ordinary product access is disabled. Your account and privacy controls remain available.",
             Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -255,7 +262,9 @@ private fun RestrictedLifecycleScreen(signal: AccountLifecycleSignal, retry: () 
         }
         Button({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account".toUri())) }, Modifier.fillMaxWidth().padding(top = 20.dp)) { Text("Open account and recovery controls") }
         Button({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account#export".toUri())) }, Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Export my data") }
-        TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://getnarratrace.com/privacy".toUri())) }, Modifier.fillMaxWidth()) { Text("Privacy and data-rights information") }
+        TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, TERMS_POLICY_URL.toUri())) }, Modifier.fillMaxWidth()) { Text("Terms of Service") }
+        TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, PRIVACY_POLICY_URL.toUri())) }, Modifier.fillMaxWidth()) { Text("Privacy and data-rights information") }
+        TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, COOKIE_POLICY_URL.toUri())) }, Modifier.fillMaxWidth()) { Text("Cookie Policy") }
         TextButton(retry, Modifier.fillMaxWidth()) { Text("Check account status again") }
     }
 }
@@ -286,17 +295,17 @@ private fun RequiredLegalGate(container: AppContainer, content: @Composable () -
     if (accepted != null && requiredLegalAcceptanceComplete(accepted)) { content(); return }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Review current legal terms", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
-        item { Text("The updated Terms clarify account and content responsibilities, service limitations, liability, dispute rules, and how material policy changes are accepted.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text("The updated Terms and Privacy Policy clarify account lifecycle and verified deletion timing, content rights, cookies, global privacy rights, security incidents, warranties, liability, and New Jersey dispute rules.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         when (val current = result) {
             null -> item { LoadingMessage("Checking current document versions…") }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to review the current documents.", color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Unavailable -> item { Text(current.message, color = MaterialTheme.colorScheme.error); Button({ refresh++ }) { Text("Try again") } }
             is FeatureResult.Success -> {
                 val legal = current.value
-                if (!legal.termsAccepted) item { LegalChoiceCard("Terms of Service", legal.termsVersion, "Read the complete Terms before accepting.", "https://getnarratrace.com/terms", "Accept current Terms", busy) {
+                if (!legal.termsAccepted) item { LegalChoiceCard("Terms of Service", legal.termsVersion, "Read the complete Terms before accepting.", TERMS_POLICY_URL, "Accept current Terms", busy) {
                     busy = true; scope.launch { result = container.mediaRepository.acceptTerms(); busy = false }
                 } }
-                if (!legal.privacyAcknowledged) item { LegalChoiceCard("Privacy Policy", legal.privacyVersion, "Acknowledge that you received and reviewed the current Privacy Policy. This is not consent to optional processing.", "https://getnarratrace.com/privacy", "Acknowledge Privacy Policy", busy) {
+                if (!legal.privacyAcknowledged) item { LegalChoiceCard("Privacy Policy", legal.privacyVersion, "Acknowledge that you received and reviewed the current Privacy Policy. This is not consent to optional processing.", PRIVACY_POLICY_URL, "Acknowledge Privacy Policy", busy) {
                     busy = true; scope.launch { result = container.mediaRepository.acknowledgePrivacy(); busy = false }
                 } }
                 if (!legal.contentRightsAttested) item { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -307,6 +316,7 @@ private fun RequiredLegalGate(container: AppContainer, content: @Composable () -
             }
         }
         item { Text("You can still use account, export, cancellation, deletion, and privacy controls without making these choices.", style = MaterialTheme.typography.bodySmall) }
+        item { TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, COOKIE_POLICY_URL.toUri())) }, Modifier.fillMaxWidth()) { Text("Read Cookie Policy") } }
         item { TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account".toUri())) }, Modifier.fillMaxWidth()) { Text("Account and privacy controls") } }
     }
 }
@@ -748,6 +758,7 @@ private fun CustomerMoreScreen(
             }
         }
         item { Text("Delivery center", style = MaterialTheme.typography.titleLarge) }
+        item { Text("For an external delivery, Narratrace emails a private review request that identifies you as the creator but includes no artifact content. The recipient can confirm or decline; declining revokes the delivery. If their confirmation is more than 12 months old when delivery is due, Narratrace requires confirmation again before access.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         when (val current = deliveries) {
             null -> item { LoadingMessage("Loading private deliveries…") }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify deliveries.", color = MaterialTheme.colorScheme.error) }
@@ -756,8 +767,8 @@ private fun CustomerMoreScreen(
             else items(current.value.deliveries, key = { "delivery:${it.id}" }) { delivery -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("${delivery.artifactKind.replaceFirstChar(Char::uppercase)} for ${delivery.recipientName}", style = MaterialTheme.typography.titleMedium)
                 Text(if (delivery.selfDelivery) "Delivery to you" else delivery.recipientEmail)
-                Text(if (delivery.revokedAt != null) "Revoked" else "${delivery.state.replace('_', ' ')} · ${delivery.deliverAt}", style = MaterialTheme.typography.bodySmall)
-                if (delivery.revokedAt == null && delivery.state !in setOf("delivered", "revoked")) TextButton(onClick = { revokeDeliveryId = delivery.id }) { Text("Revoke") }
+                Text(delivery.statusLabel(), style = MaterialTheme.typography.bodySmall)
+                if (delivery.revokedAt == null && delivery.state in setOf("pending_verification", "scheduled", "delivered", "failed")) TextButton(onClick = { revokeDeliveryId = delivery.id }) { Text("Revoke delivery access") }
             } } }
         }
         item { Text("Family", style = MaterialTheme.typography.titleLarge) }
@@ -782,8 +793,13 @@ private fun CustomerMoreScreen(
             Text("Open secure account management", style = MaterialTheme.typography.titleMedium)
             Text("Request an archive, manage billing, or review closure and recovery on the authenticated website. Signing out does not delete your account.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Your plan and billing status refresh automatically when you return.", style = MaterialTheme.typography.bodySmall)
-            Text("Customer-requested closure has a 30-day recovery period. Subscription lapse is a separate archive-review state and does not by itself authorize automatic deletion.", style = MaterialTheme.typography.bodySmall)
+            Text("Closing immediately restricts account access and revokes active sessions, but a routine closure cannot skip the 30-day recovery period. After it ends, deletion is attempted across active Narratrace-controlled systems and tracked providers; provider failures are retried.", style = MaterialTheme.typography.bodySmall)
+            Text("Cold-storage tiering is not currently active. A Vault, lapsed, or dormant classification does not itself move or delete files.", style = MaterialTheme.typography.bodySmall)
         } } }
+        item { Text("Legal and privacy", style = MaterialTheme.typography.titleLarge) }
+        item { TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, TERMS_POLICY_URL.toUri())) }, Modifier.fillMaxWidth()) { Text("Terms of Service") } }
+        item { TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, PRIVACY_POLICY_URL.toUri())) }, Modifier.fillMaxWidth()) { Text("Privacy Policy") } }
+        item { TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, COOKIE_POLICY_URL.toUri())) }, Modifier.fillMaxWidth()) { Text("Cookie Policy") } }
         revocationFailure?.let { failure -> item {
             Text(
                 failure.message,
@@ -1114,7 +1130,7 @@ private fun LettersScreen(container: AppContainer, modifier: Modifier, close: ()
     BackHandler(onBack = close)
     LazyColumn(modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Capture") }; Text("Letters", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) } }
-        item { Text("Letters stay private until their delivery time and required recipient verification.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text("Letters use the same private, revocable delivery workflow as other artifacts. External recipients confirm or decline without seeing Letter content; Narratrace requires confirmation again at delivery when the prior confirmation is more than 12 months old.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { Button(onClick = { composing = true }, Modifier.fillMaxWidth()) { Text("Write a Letter") } }
         when (val loaded = result) {
             null -> item { LoadingMessage("Loading private Letters…") }
@@ -1124,7 +1140,7 @@ private fun LettersScreen(container: AppContainer, modifier: Modifier, close: ()
                 Card(Modifier.fillMaxWidth().clickable { selected = letter }) { Column(Modifier.padding(16.dp)) {
                     Text(letter.subject, style = MaterialTheme.typography.titleMedium)
                     Text("To ${letter.recipientName}")
-                    Text(when { letter.delivered -> "Delivered"; !letter.recipientVerified -> "Recipient verification pending"; else -> "Private until ${letter.unlockAt}" }, style = MaterialTheme.typography.bodySmall)
+                    Text(letterDeliveryStatus(letter.deliveryState, letter.recipientVerified, letter.delivered, letter.unlockAt), style = MaterialTheme.typography.bodySmall)
                 } }
             }
         }
@@ -1142,7 +1158,7 @@ private fun LetterComposerScreen(container: AppContainer, modifier: Modifier, cl
     BackHandler(enabled = !saving, onBack = close)
     Column(modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close, enabled = !saving) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Letters") }; Text("Write a Letter", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
-        Text("Nothing is shared before delivery. External recipients must verify their address before a private Letter can be delivered.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Nothing is shared before delivery. The recipient email identifies you as the creator but contains no Letter content. External recipients can confirm or decline, and Narratrace requires confirmation again at delivery if the prior confirmation is more than 12 months old.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         OutlinedTextField(recipient, { recipient = it.take(100); key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth(), label = { Text("Recipient name") }, singleLine = true)
         Button(onClick = { selfDelivery = !selfDelivery; key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth()) { Text(if (selfDelivery) "Deliver to me ✓" else "Deliver to me") }
         if (!selfDelivery) OutlinedTextField(email, { email = it.take(254); key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth(), label = { Text("Recipient email") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
@@ -1186,9 +1202,10 @@ private fun LetterDetailScreen(container: AppContainer, summary: LetterSummary, 
         is FeatureResult.Unavailable -> RetrySurface(modifier, "Letter unavailable", loaded.message, loaded.supportReference) { result = null }
         is FeatureResult.Success -> { val letter = loaded.value.letter; Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Letters") }; Text(letter.subject, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
-            Text("To ${letter.recipientName}"); Text(if (letter.delivered) "Delivered" else if (!letter.recipientVerified) "Recipient verification pending" else "Private until ${letter.unlockAt}")
-            if (letter.unlocked) letter.body?.let { Text(it, style = MaterialTheme.typography.bodyLarge) } else Text("Letter content remains private until delivery.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (letter.isOwner && !letter.recipientVerified && letter.canCancel) {
+            Text("To ${letter.recipientName}"); Text(letterDeliveryStatus(letter.deliveryState, letter.recipientVerified, letter.delivered, letter.unlockAt))
+            if (letter.canDisplayContent()) Text(letter.body!!, style = MaterialTheme.typography.bodyLarge)
+            else Text("Letter content remains private until authorized delivery.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (letter.isOwner && !letter.sharedDeliveryManaged && letter.deliveryState == "pending_verification" && !letter.recipientVerified && letter.canCancel) {
                 Button(onClick = { busy = true; scope.launch { val value = container.lettersRepository.manage(letter.id, "resend_verification"); message = if (value is FeatureResult.Success) "Verification sent. No Letter content was included." else "Verification could not be sent."; busy = false } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Resend verification") }
                 OutlinedTextField(email, { email = it.take(254) }, Modifier.fillMaxWidth(), label = { Text("Correct recipient email") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
                 Button(onClick = { busy = true; scope.launch { val value = container.lettersRepository.manage(letter.id, "update_recipient_email", email); message = if (value is FeatureResult.Success) "Recipient updated. The previous verification link was revoked." else "Recipient could not be updated."; busy = false } }, enabled = !busy && email.trim().isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("Update recipient and resend") }
@@ -1306,7 +1323,7 @@ private fun GuidedInterviewsScreen(container: AppContainer, modifier: Modifier, 
                 Text("AI notice · ${(legal as FeatureResult.Success<io.narratrace.android.core.media.LegalAcceptance>).value.aiNoticeVersion}", style = MaterialTheme.typography.titleMedium)
                 Text("Nia uses your responses to generate follow-up questions, transcripts, summaries, insights, and requested narratives. AI can make mistakes; review results before relying on or sharing them.")
                 val context = LocalContext.current
-                TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, "https://getnarratrace.com/terms#ai-generated-content".toUri())) }) { Text("Read the AI notice") }
+                TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, "$TERMS_POLICY_URL#ai-generated-content".toUri())) }) { Text("Read the AI notice") }
                 Button(onClick = { accepting = true; scope.launch { legal = container.mediaRepository.acknowledgeAiNotice(); accepting = false } }, enabled = !accepting) { Text("Acknowledge AI notice") }
             } } }
         }
@@ -1697,7 +1714,7 @@ private fun VerifiedPersonDetail(person: RemotePersonDetail, modifier: Modifier,
         else items(person.letters, key = { "letter:${it.id}" }) { letter ->
             Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
                 Text(letter.subject, style = MaterialTheme.typography.titleMedium)
-                Text(if (letter.delivered) "Delivered" else "Private until delivery", style = MaterialTheme.typography.bodySmall)
+                Text("Open Letters to review the secure delivery status", style = MaterialTheme.typography.bodySmall)
             } }
         }
         item { Text("Memories (${person.memories.size})", style = MaterialTheme.typography.titleLarge) }
@@ -2044,7 +2061,7 @@ private fun ArtifactDeliveryComposer(container: AppContainer, uploadId: String, 
     val scope = rememberCoroutineScope(); BackHandler(enabled = !busy, onBack = close)
     Column(modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to media") }; Text("Deliver this memory", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
-        Text("The recipient cannot access this artifact before its delivery time. External recipients must verify their address first.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("The recipient cannot access this artifact before its delivery time. Their private review email identifies you as the creator but contains no artifact content. They can confirm or decline; Narratrace asks them to confirm again at delivery if the prior confirmation is more than 12 months old.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         OutlinedTextField(name, { name = it.take(100) }, Modifier.fillMaxWidth(), label = { Text("Recipient name") }, singleLine = true)
         Button(onClick = { self = !self }, Modifier.fillMaxWidth()) { Text(if (self) "Deliver to me ✓" else "Deliver to me") }
         if (!self) OutlinedTextField(email, { email = it.take(254) }, Modifier.fillMaxWidth(), label = { Text("Recipient email") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
