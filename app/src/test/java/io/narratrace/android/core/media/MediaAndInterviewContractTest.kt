@@ -7,8 +7,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import io.narratrace.android.app.requiredLegalAcceptanceComplete
 import io.narratrace.android.app.COOKIE_POLICY_URL
+import io.narratrace.android.app.ADULT_ACCOUNT_NOTICE
+import io.narratrace.android.app.LEGAL_CHANGE_SUMMARY
 import io.narratrace.android.app.LEGAL_REVIEW_HEADING
 import io.narratrace.android.app.MEDIA_INSIGHTS_HEADING
+import io.narratrace.android.app.NIA_DEFINITION
 import io.narratrace.android.app.PRIVACY_POLICY_URL
 import io.narratrace.android.app.TERMS_POLICY_URL
 
@@ -33,8 +36,8 @@ class MediaAndInterviewContractTest {
         val accepted = LegalAcceptance(
             termsAccepted = true, privacyAcknowledged = true, aiNoticeAcknowledged = false,
             specialCategoryConsent = false, contentRightsAttested = true,
-            termsVersion = "2026-08-26.1", privacyVersion = "2026-08-26.1",
-            aiNoticeVersion = "2026-08-26", contentRightsVersion = "2026-08-26",
+            termsVersion = "2026-08-26.2", privacyVersion = "2026-08-26.2",
+            aiNoticeVersion = "2026-08-26.1", contentRightsVersion = "2026-08-26",
         )
         assertTrue(requiredLegalAcceptanceComplete(accepted))
         assertFalse(requiredLegalAcceptanceComplete(accepted.copy(contentRightsAttested = false)))
@@ -51,6 +54,13 @@ class MediaAndInterviewContractTest {
     @Test fun `native legal and media headings use current customer language`() {
         assertEquals("Review Narratrace Terms", LEGAL_REVIEW_HEADING)
         assertEquals("Nia’s media insights", MEDIA_INSIGHTS_HEADING)
+        assertEquals(
+            "The Terms and Privacy Policy clarify Nia, adults-only accounts, linked policy sections, business-continuity downloads and deletion, product protection, and Narratrace ownership.",
+            LEGAL_CHANGE_SUMMARY,
+        )
+        assertTrue(NIA_DEFINITION.contains("AI assistant"))
+        assertTrue(NIA_DEFINITION.contains("not a person"))
+        assertTrue(ADULT_ACCOUNT_NOTICE.contains("18 years of age or older"))
     }
 
     @Test fun `legal choices serialize separately and never bundle optional consent`() {

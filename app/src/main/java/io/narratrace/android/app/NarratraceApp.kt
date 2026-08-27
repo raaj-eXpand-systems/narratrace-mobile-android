@@ -132,6 +132,9 @@ internal const val PRIVACY_POLICY_URL = "https://getnarratrace.com/privacy"
 internal const val COOKIE_POLICY_URL = "https://getnarratrace.com/cookies"
 internal const val LEGAL_REVIEW_HEADING = "Review Narratrace Terms"
 internal const val MEDIA_INSIGHTS_HEADING = "Nia’s media insights"
+internal const val LEGAL_CHANGE_SUMMARY = "The Terms and Privacy Policy clarify Nia, adults-only accounts, linked policy sections, business-continuity downloads and deletion, product protection, and Narratrace ownership."
+internal const val NIA_DEFINITION = "Nia is the name Narratrace gives its AI assistant and AI-supported story companion. References to Nia mean Narratrace’s AI features, not a person."
+internal const val ADULT_ACCOUNT_NOTICE = "Narratrace accounts are intended only for people 18 years of age or older."
 
 private fun InputStream.readBounded(maximum: Int): ByteArray? {
     val output = ByteArrayOutputStream(minOf(maximum, 64 * 1024))
@@ -297,7 +300,7 @@ private fun RequiredLegalGate(container: AppContainer, content: @Composable () -
     if (accepted != null && requiredLegalAcceptanceComplete(accepted)) { content(); return }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text(LEGAL_REVIEW_HEADING, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
-        item { Text("The Terms and Privacy Policy explain account lifecycle and verified deletion timing, content rights, cookies, global privacy rights, security incidents, warranties, liability, and New Jersey dispute rules. Review the current documents before continuing. Privacy acknowledgement confirms receipt of the notice; it is not consent to optional AI processing.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text("$LEGAL_CHANGE_SUMMARY $NIA_DEFINITION Review the current documents before continuing. Privacy acknowledgement confirms receipt of the notice; it is not consent to optional AI processing.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         when (val current = result) {
             null -> item { LoadingMessage("Checking current document versions…") }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to review the current documents.", color = MaterialTheme.colorScheme.error) }
@@ -366,6 +369,12 @@ private fun SignInScreen(container: AppContainer, returning: Boolean) {
             modifier = Modifier.padding(top = 16.dp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyLarge,
+        )
+        Text(
+            text = ADULT_ACCOUNT_NOTICE,
+            modifier = Modifier.padding(top = 12.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
         )
         if (emailChallenge == null && !requiresMfaEnrollment) {
             OutlinedTextField(
@@ -1319,7 +1328,7 @@ private fun GuidedInterviewsScreen(container: AppContainer, modifier: Modifier, 
             IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Capture") }
             Text("Guided interviews", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
         } }
-        item { Text("Nia uses your responses to suggest thoughtful follow-up questions. AI may make mistakes; review generated material before relying on or sharing it.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text("$NIA_DEFINITION Nia uses your responses to suggest thoughtful follow-up questions. AI may make mistakes; review generated material before relying on or sharing it.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (legal is FeatureResult.Success && !(legal as FeatureResult.Success<io.narratrace.android.core.media.LegalAcceptance>).value.aiNoticeAcknowledged) {
             item { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("AI notice", style = MaterialTheme.typography.titleMedium)
