@@ -10,6 +10,10 @@ sealed interface FeatureResult<out T> {
     data class Unavailable(val message: String, val supportReference: String = "") : FeatureResult<Nothing>
 }
 
+/** Local originals remain queued unless the server explicitly confirms both guarantees. */
+internal fun PreservationAcknowledgement?.permitsLocalRemoval(): Boolean =
+    this?.originalDurablyStored == true && integrityVerified
+
 class MediaAndInterviewRepository(
     private val api: MediaAndInterviewApi,
     private val sessions: SessionManager,
@@ -26,14 +30,14 @@ class MediaAndInterviewRepository(
                     if (!api.transfer(auth.value, bytes, item.mimeType)) return@forEach
                     val confirmation = api.confirmUpload(item, auth.value, token) as? ApiResult.Success ?: return@forEach
                     val ack = confirmation.value.preservationAcknowledgement
-                    if (ack.originalDurablyStored && ack.integrityVerified) queue.acknowledgeAndRemove(item.id)
+                    if (ack.permitsLocalRemoval()) queue.acknowledgeAndRemove(item.id)
                 }
                 PendingMediaKind.InterviewAudio -> {
                     val bytes = queue.read(item) ?: return@forEach
                     val id = item.interviewId ?: return@forEach
-                    if (api.respondAudio(id, bytes, item.mimeType, item.idempotencyKey, token) is ApiResult.Success) {
-                        queue.acknowledgeAndRemove(item.id)
-                    }
+                    val response = api.respondAudio(id, bytes, item.mimeType, item.sha256, item.idempotencyKey, token) as? ApiResult.Success
+                        ?: return@forEach
+                    if (response.value.preservationAcknowledgement.permitsLocalRemoval()) queue.acknowledgeAndRemove(item.id)
                 }
                 PendingMediaKind.StandaloneVideo, PendingMediaKind.InterviewVideo -> {
                     var current = item
@@ -44,11 +48,12 @@ class MediaAndInterviewRepository(
                     }
                     if (!api.transferVideo(current.uploadUrl!!, current, queue)) return@forEach
                     if (current.kind == PendingMediaKind.InterviewVideo) {
-                        if (api.confirmInterviewVideo(current, token) is ApiResult.Success) queue.acknowledgeAndRemove(current.id)
+                        val response = api.confirmInterviewVideo(current, token) as? ApiResult.Success ?: return@forEach
+                        if (response.value.preservationAcknowledgement.permitsLocalRemoval()) queue.acknowledgeAndRemove(current.id)
                     } else {
                         val preserved = api.videoPreservation(current.serverId!!, token) as? ApiResult.Success ?: return@forEach
                         val ack = preserved.value.video.preservationAcknowledgement
-                        if (ack?.originalDurablyStored == true && ack.integrityVerified) queue.acknowledgeAndRemove(current.id)
+                        if (ack.permitsLocalRemoval()) queue.acknowledgeAndRemove(current.id)
                     }
                 }
             }

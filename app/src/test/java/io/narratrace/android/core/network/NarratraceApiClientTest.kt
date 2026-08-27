@@ -26,6 +26,15 @@ private data class Profile(val email: String, val displayName: String? = null)
  */
 class NarratraceApiClientTest {
 
+    @Test
+    fun `protected-content hash header accepts only lowercase sha256`() {
+        val valid = "a".repeat(64)
+        assertEquals(valid, contentSha256Header(valid))
+        assertEquals(null, contentSha256Header("A".repeat(64)))
+        assertEquals(null, contentSha256Header("a".repeat(63)))
+        assertEquals(null, contentSha256Header("not-a-hash"))
+    }
+
     private lateinit var server: MockWebServer
 
     @Before

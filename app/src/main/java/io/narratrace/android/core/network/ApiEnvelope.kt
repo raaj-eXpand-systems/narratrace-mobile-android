@@ -22,6 +22,7 @@ const val HEADER_SUPPORT_ID = "X-Support-Id"
 const val HEADER_PLATFORM = "X-Narratrace-Platform"
 const val HEADER_APP_VERSION = "X-Narratrace-App-Version"
 const val HEADER_IDEMPOTENCY_KEY = "Idempotency-Key"
+const val HEADER_CONTENT_SHA256 = "X-Narratrace-Content-SHA256"
 
 @Serializable
 data class ApiMeta(

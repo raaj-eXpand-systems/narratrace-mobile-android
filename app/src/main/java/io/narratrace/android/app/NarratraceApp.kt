@@ -132,7 +132,7 @@ internal const val PRIVACY_POLICY_URL = "https://getnarratrace.com/privacy"
 internal const val COOKIE_POLICY_URL = "https://getnarratrace.com/cookies"
 internal const val LEGAL_REVIEW_HEADING = "Review Narratrace Terms"
 internal const val MEDIA_INSIGHTS_HEADING = "Nia’s media insights"
-internal const val LEGAL_CHANGE_SUMMARY = "The Terms and Privacy Policy clarify Nia, adults-only accounts, linked policy sections, business-continuity downloads and deletion, product protection, and Narratrace ownership."
+internal const val LEGAL_CHANGE_SUMMARY = "The Terms clarify prohibited media uploads, including content that remains prohibited even when the uploader created, owns, or appears in it, while preserving legitimate family and documentary contexts."
 internal const val NIA_DEFINITION = "Nia is the name Narratrace gives its AI assistant and AI-supported story companion. References to Nia mean Narratrace’s AI features, not a person."
 internal const val ADULT_ACCOUNT_NOTICE = "Narratrace accounts are intended only for people 18 years of age or older."
 

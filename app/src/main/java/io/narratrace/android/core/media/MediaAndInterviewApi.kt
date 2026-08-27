@@ -30,7 +30,12 @@ import kotlinx.serialization.serializer
 @Serializable data class InterviewDetail(
     val interview: InterviewSummary, val messages: List<InterviewMessage>, val narrative: String? = null,
 )
-@Serializable data class InterviewResponse(val message: InterviewMessage, val replayed: Boolean = false, val requiresCheckout: Boolean = false)
+@Serializable data class InterviewResponse(
+    val message: InterviewMessage,
+    val replayed: Boolean = false,
+    val requiresCheckout: Boolean = false,
+    val preservationAcknowledgement: PreservationAcknowledgement? = null,
+)
 @Serializable private data class InterviewTextResponse(val content: String)
 @Serializable data class RecordingCapacity(
     val remainingBytes: Long, val remainingLabel: String, val audioMaxSeconds: Int, val videoMaxSeconds: Int,
@@ -100,8 +105,8 @@ class MediaAndInterviewApi(private val client: NarratraceApiClient) {
         "/api/v1/interviews/${segment(id)}/responses", NarratraceJson.encodeToString(InterviewTextResponse(content)),
         serializer<InterviewResponse>(), token, key,
     )
-    suspend fun respondAudio(id: String, bytes: ByteArray, mime: String, key: String, token: String): ApiResult<InterviewResponse> = client.postBytes(
-        "/api/v1/interviews/${segment(id)}/audio-responses", bytes, mime, serializer<InterviewResponse>(), token, key,
+    suspend fun respondAudio(id: String, bytes: ByteArray, mime: String, sha256: String, key: String, token: String): ApiResult<InterviewResponse> = client.postBytes(
+        "/api/v1/interviews/${segment(id)}/audio-responses", bytes, mime, sha256, serializer<InterviewResponse>(), token, key,
     )
     suspend fun capacity(token: String): ApiResult<RecordingCapacity> = client.get(
         "/api/v1/interviews/recording-capacity", serializer<RecordingCapacity>(), token,

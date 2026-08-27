@@ -94,17 +94,23 @@ class NarratraceApiClient(
         path: String,
         bytes: ByteArray,
         mimeType: String,
+        contentSha256: String,
         serializer: KSerializer<T>,
         bearer: String,
         idempotencyKey: String,
-    ): ApiResult<T> = executeRequest(
-        path = path,
-        method = "POST",
-        requestBody = bytes.toRequestBody(mimeType.toMediaType()),
-        serializer = serializer,
-        bearer = bearer,
-        idempotencyKey = idempotencyKey,
-    )
+    ): ApiResult<T> {
+        val verifiedHash = contentSha256Header(contentSha256)
+            ?: return ApiResult.Unreadable(reason = "The protected-content hash is invalid.")
+        return executeRequest(
+            path = path,
+            method = "POST",
+            requestBody = bytes.toRequestBody(mimeType.toMediaType()),
+            serializer = serializer,
+            bearer = bearer,
+            idempotencyKey = idempotencyKey,
+            contentSha256 = verifiedHash,
+        )
+    }
 
     /** Uploads only to the signed Supabase storage endpoint returned by our API. */
     suspend fun putSignedStorage(url: String, bytes: ByteArray, mimeType: String): Boolean =
@@ -200,7 +206,7 @@ class NarratraceApiClient(
             method == "POST" || method == "PATCH" -> "".toRequestBody(JSON_MEDIA_TYPE)
             else -> null
         }
-        return executeRequest(path, method, requestBody, serializer, bearer, idempotencyKey)
+        return executeRequest(path, method, requestBody, serializer, bearer, idempotencyKey, null)
     }
 
     private suspend fun <T> executeRequest(
@@ -210,6 +216,7 @@ class NarratraceApiClient(
         serializer: KSerializer<T>,
         bearer: String?,
         idempotencyKey: String?,
+        contentSha256: String?,
     ): ApiResult<T> = withContext(Dispatchers.IO) {
         val url = resolve(path)
             ?: return@withContext ApiResult.Unreadable(
@@ -229,6 +236,7 @@ class NarratraceApiClient(
             .apply {
                 bearer?.let { header("Authorization", "Bearer $it") }
                 idempotencyKey?.let { header(HEADER_IDEMPOTENCY_KEY, it) }
+                contentSha256?.let { header(HEADER_CONTENT_SHA256, it) }
             }
             .build()
 
@@ -324,6 +332,9 @@ class NarratraceApiClient(
             .build()
     }
 }
+
+internal fun contentSha256Header(value: String): String? =
+    value.takeIf { it.matches(Regex("^[0-9a-f]{64}$")) }
 
 /** Bridges OkHttp's callback API to coroutines without pulling in another dependency. */
 private suspend fun Call.await(): Response = suspendCoroutine { continuation ->
