@@ -3,6 +3,7 @@ package io.narratrace.android.core.account
 import io.narratrace.android.core.network.ApiResult
 import io.narratrace.android.core.network.NarratraceApiClient
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.serializer
 
 @Serializable
@@ -18,6 +19,33 @@ data class AccountLifecycleSignal(
     val installationBound: Boolean,
 )
 
+@Serializable
+data class AccountClosureStatus(
+    val accountClosed: Boolean,
+    val closedAt: String? = null,
+    val graceEndsAt: String? = null,
+    val daysLeft: Int? = null,
+    val expired: Boolean = false,
+    val supportRef: String? = null,
+    val purgeScheduledAt: String? = null,
+    val closureFinalizedAt: String? = null,
+    val refundAmount: Int = 0,
+    val currency: String = "usd",
+    val requiresRecentAuthentication: Boolean = true,
+)
+
+@Serializable
+data class AccountClosureMutation(
+    val ok: Boolean,
+    val accountClosed: Boolean,
+    val supportRef: String? = null,
+    val restoredStatus: String? = null,
+    val requiresSignIn: Boolean = false,
+)
+
+@Serializable
+internal data class AccountClosureAction(val action: String)
+
 class AccountLifecycleApi(private val client: NarratraceApiClient) {
     /**
      * Uses the last access credential directly. The server retains only its hash as
@@ -26,6 +54,23 @@ class AccountLifecycleApi(private val client: NarratraceApiClient) {
      */
     suspend fun signal(accessCredential: String): ApiResult<AccountLifecycleSignal> =
         client.get("/api/v1/account/lifecycle", serializer<AccountLifecycleSignal>(), accessCredential)
+
+    suspend fun closureStatus(accessCredential: String): ApiResult<AccountClosureStatus> =
+        client.get("/api/v1/account/closure", serializer<AccountClosureStatus>(), accessCredential)
+
+    suspend fun close(accessCredential: String): ApiResult<AccountClosureMutation> =
+        closureAction("close", accessCredential)
+
+    suspend fun reopen(lifecycleCredential: String): ApiResult<AccountClosureMutation> =
+        closureAction("reopen", lifecycleCredential)
+
+    private suspend fun closureAction(action: String, credential: String): ApiResult<AccountClosureMutation> =
+        client.post(
+            "/api/v1/account/closure",
+            io.narratrace.android.core.network.NarratraceJson.encodeToString(AccountClosureAction(action)),
+            serializer<AccountClosureMutation>(),
+            credential,
+        )
 }
 
 internal fun AccountLifecycleSignal.requiresLocalPurge(): Boolean =

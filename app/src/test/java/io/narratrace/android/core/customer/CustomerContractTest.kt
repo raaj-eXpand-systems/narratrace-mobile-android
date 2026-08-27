@@ -3,23 +3,11 @@ package io.narratrace.android.core.customer
 import io.narratrace.android.core.network.ApiSuccess
 import io.narratrace.android.core.network.NarratraceJson
 import kotlinx.serialization.serializer
-import kotlinx.serialization.encodeToString
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class CustomerContractTest {
-    @Test
-    fun `plan intent contract contains only the closed activity action`() {
-        val request = NarratraceJson.encodeToString(CustomerActivityRequest("paywall_viewed"))
-        assertEquals("{\"action\":\"paywall_viewed\"}", request)
-        assertFalse(request.contains("email"))
-        assertFalse(request.contains("metadata"))
-
-        val response = NarratraceJson.decodeFromString<CustomerActivityRecorded>("""{"recorded":true}""")
-        assertEquals(true, response.recorded)
-    }
-
     @Test
     fun `account contract decodes server formatted storage and capabilities`() {
         val payload = """

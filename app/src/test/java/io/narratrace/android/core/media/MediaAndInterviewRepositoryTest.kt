@@ -30,6 +30,26 @@ class MediaAndInterviewRepositoryTest {
         assertTrue(response.preservationAcknowledgement.permitsLocalRemoval())
     }
 
+    @Test fun `interview audio and video use the same two-part local purge gate`() {
+        val partial = PreservationAcknowledgement(originalDurablyStored = true, integrityVerified = false)
+        val complete = PreservationAcknowledgement(originalDurablyStored = true, integrityVerified = true)
+        val audioPartial = decodeResponse(partial)
+        val audioComplete = decodeResponse(complete)
+        val videoPartial = VideoPreservationResponse(
+            kind = "preserved",
+            video = VideoPreservation("media-1", "video-1", "ready", partial),
+        )
+        val videoComplete = VideoPreservationResponse(
+            kind = "preserved",
+            video = VideoPreservation("media-1", "video-1", "ready", complete),
+        )
+
+        assertFalse(audioPartial.preservationAcknowledgement.permitsLocalRemoval())
+        assertFalse(videoPartial.video.preservationAcknowledgement.permitsLocalRemoval())
+        assertTrue(audioComplete.preservationAcknowledgement.permitsLocalRemoval())
+        assertTrue(videoComplete.video.preservationAcknowledgement.permitsLocalRemoval())
+    }
+
     private fun decodeResponse(acknowledgement: PreservationAcknowledgement?): InterviewResponse {
         val acknowledgementJson = acknowledgement?.let {
             ""","preservationAcknowledgement":{"originalDurablyStored":${it.originalDurablyStored},"integrityVerified":${it.integrityVerified}}"""

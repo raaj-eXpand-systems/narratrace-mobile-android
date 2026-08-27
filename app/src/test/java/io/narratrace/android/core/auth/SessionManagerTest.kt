@@ -130,6 +130,7 @@ class SessionManagerTest {
         val state = manager.state.value
         assertTrue(state is AuthState.Locked)
         assertEquals("account-1", (state as AuthState.Locked).accountId)
+        assertEquals("ntm_at_current", manager.lifecycleCredential())
     }
 
     @Test
@@ -150,6 +151,16 @@ class SessionManagerTest {
     }
 
     @Test
+    fun `successful closure transition retains only the durable lifecycle credential`() = runTest {
+        val manager = manager(session()) { ApiResult.Offline() }
+
+        assertTrue(manager.retainLifecycleCredentialAfterClosure("ntm_at_current"))
+        assertEquals("ntm_at_current", manager.lifecycleCredential())
+        assertTrue(manager.state.value is AuthState.Authenticated)
+        assertTrue(!manager.retainLifecycleCredentialAfterClosure("different-token"))
+    }
+
+    @Test
     fun `adoption refuses an expiry it cannot parse`() = runTest {
         val manager = manager(session(), restoreFirst = false) { ApiResult.Offline() }
         assertTrue(!manager.adopt(TokenPair("a", "r", "nonsense"), "account-9"))
@@ -167,6 +178,7 @@ class SessionManagerTest {
         val manager = manager(session()) { ApiResult.Offline() }
         assertTrue(manager.purgeAccountSession())
         assertTrue(manager.state.value is AuthState.SignedOut)
+        assertEquals(null, manager.lifecycleCredential())
     }
 
     // ── harness ──────────────────────────────────────────────────────────────

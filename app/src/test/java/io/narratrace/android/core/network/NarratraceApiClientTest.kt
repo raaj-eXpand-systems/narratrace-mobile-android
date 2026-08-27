@@ -122,9 +122,10 @@ class NarratraceApiClientTest {
     fun `every documented error code parses`() {
         val documented = listOf(
             "AUTHENTICATION_REQUIRED", "AUTHENTICATION_METHOD_UNSUPPORTED", "FORBIDDEN",
-            "INVALID_REQUEST", "VALIDATION_FAILED", "IDEMPOTENCY_CONFLICT",
-            "PROMOTION_NOT_AVAILABLE", "METHOD_NOT_ALLOWED", "RATE_LIMITED",
-            "RESOURCE_NOT_FOUND", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR",
+            "PRECONDITION_REQUIRED", "INVALID_REQUEST", "VALIDATION_FAILED", "IDEMPOTENCY_CONFLICT",
+            "PROMOTION_NOT_AVAILABLE", "DELIVERY_CONTACT_REQUIRED", "VERIFICATION_FAILED",
+            "METHOD_NOT_ALLOWED", "RATE_LIMITED", "RESOURCE_NOT_FOUND", "GONE",
+            "SERVICE_UNAVAILABLE", "INTERNAL_ERROR",
         )
         for (code in documented) {
             assertEquals(code, ApiErrorCode.fromWire(code).name)

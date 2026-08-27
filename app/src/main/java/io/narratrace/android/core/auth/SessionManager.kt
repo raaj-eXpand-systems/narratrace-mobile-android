@@ -76,6 +76,21 @@ class SessionManager(
     }
 
     /**
+     * Returns the stored access credential only for the restricted account
+     * lifecycle and closure endpoints. It deliberately bypasses access expiry and
+     * inactivity because the server can retain the credential hash solely for the
+     * 30-day closure recovery window after ordinary sessions are revoked.
+     */
+    fun lifecycleCredential(): String? = store.load()?.accessToken
+
+    /** Confirms the just-used credential remains durably available for recovery. */
+    fun retainLifecycleCredentialAfterClosure(accessCredential: String): Boolean {
+        val current = (_state.value as? AuthState.Authenticated)?.session ?: return false
+        if (current.accessToken != accessCredential) return false
+        return store.load()?.accessToken == accessCredential
+    }
+
+    /**
      * A usable access token, refreshing once if the current one has expired.
      *
      * Callers must not retry on [TokenLease.Unavailable] — a refresh that could not

@@ -39,6 +39,30 @@ class ProtectedMediaQueueTest {
         assertNull(queue.read(item))
     }
 
+    @Test fun `repeated reconciliation warning exposes no protected-content metadata`() {
+        val privateName = "family-secret-photo.jpg"
+        val item = PendingMedia(
+            id = "opaque-id",
+            kind = PendingMediaKind.Photo,
+            encryptedFilename = "opaque.bin",
+            originalFilename = privateName,
+            mimeType = "image/jpeg",
+            byteCount = 42,
+            sha256 = "a".repeat(64),
+            idempotencyKey = "retry-key",
+            attempts = ProtectedMediaQueue.RECONCILIATION_ATTENTION_ATTEMPTS,
+        )
+
+        val warning = protectedUploadAttention(listOf(item))!!
+
+        assertTrue(warning.contains("1 protected upload"))
+        assertTrue(warning.contains("encrypted on this device"))
+        assertFalse(warning.contains(privateName))
+        assertFalse(warning.contains(item.id))
+        assertFalse(warning.contains(item.mimeType))
+        assertNull(protectedUploadAttention(listOf(item.copy(attempts = 2))))
+    }
+
     @Test fun `rejects empty and path-like input`() {
         val queue = ProtectedMediaQueue(Files.createTempDirectory("media-queue").toFile(), cipher)
         assertNull(queue.enqueue(byteArrayOf(), PendingMediaKind.StandaloneAudio, "a.m4a", "audio/mp4"))

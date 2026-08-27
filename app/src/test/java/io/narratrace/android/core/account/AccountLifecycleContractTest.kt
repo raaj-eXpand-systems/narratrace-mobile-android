@@ -1,6 +1,7 @@
 package io.narratrace.android.core.account
 
 import io.narratrace.android.core.network.NarratraceJson
+import kotlinx.serialization.encodeToString
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -33,11 +34,40 @@ class AccountLifecycleContractTest {
         val value = NarratraceJson.decodeFromString<AccountLifecycleSignal>("""{
           "state":"closure_pending","effectiveAt":"2026-08-26T00:00:00.000Z",
           "recoveryEndsAt":"2026-09-25T00:00:00.000Z","purgeEligibleAt":"2026-09-25T00:00:00.000Z",
-          "reasonCode":"customer_requested_closure","appealStatus":"not_applicable",
+          "reasonCode":"voluntary_closure","appealStatus":"not_applicable",
           "localDataDisposition":"retain_encrypted","installationBound":true,"future":"safe"
         }""")
         assertFalse(value.requiresLocalPurge())
+        assertFalse(value.allowsOrdinaryAccess())
+        assertEquals("voluntary_closure", value.reasonCode)
         assertTrue(value.installationBound)
+    }
+
+    @Test fun `mobile account closure status decodes recovery refund and privacy-safe reference`() {
+        val value = NarratraceJson.decodeFromString<AccountClosureStatus>("""{
+          "accountClosed":true,"closedAt":"2026-08-27T12:00:00.000Z",
+          "graceEndsAt":"2026-09-26T12:00:00.000Z","daysLeft":30,"expired":false,
+          "supportRef":"opaque-support-reference","purgeScheduledAt":null,"closureFinalizedAt":null,
+          "refundAmount":1250,"currency":"usd","requiresRecentAuthentication":true,"future":"safe"
+        }""")
+
+        assertTrue(value.accountClosed)
+        assertEquals(30, value.daysLeft)
+        assertEquals(1250, value.refundAmount)
+        assertTrue(value.requiresRecentAuthentication)
+        assertEquals("opaque-support-reference", value.supportRef)
+    }
+
+    @Test fun `closure mutations serialize only the allowlisted action`() {
+        assertEquals("{\"action\":\"close\"}", NarratraceJson.encodeToString(AccountClosureAction("close")))
+        assertEquals("{\"action\":\"reopen\"}", NarratraceJson.encodeToString(AccountClosureAction("reopen")))
+
+        val reopened = NarratraceJson.decodeFromString<AccountClosureMutation>("""{
+          "ok":true,"accountClosed":false,"restoredStatus":"vault","requiresSignIn":true
+        }""")
+        assertTrue(reopened.ok)
+        assertFalse(reopened.accountClosed)
+        assertTrue(reopened.requiresSignIn)
     }
 
     @Test fun `suspension appeal remains reachable without ordinary access`() {

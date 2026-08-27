@@ -9,12 +9,19 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import io.narratrace.android.app.AppContainer
+import io.narratrace.android.core.account.allowsOrdinaryAccess
+import io.narratrace.android.core.auth.AuthState
+import io.narratrace.android.core.network.ApiResult
+import io.narratrace.android.core.runtime.RuntimeResolution
 import java.util.concurrent.TimeUnit
 
 class ProtectedUploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val container = AppContainer(applicationContext)
-        container.sessionManager.restore()
+        if (container.runtimeConfigRepository.resolve() != RuntimeResolution.Available) return Result.retry()
+        val session = (container.sessionManager.restore() as? AuthState.Authenticated)?.session ?: return Result.success()
+        val lifecycle = container.accountLifecycleApi.signal(session.accessToken)
+        if (lifecycle !is ApiResult.Success || !lifecycle.value.allowsOrdinaryAccess()) return Result.success()
         val remaining = container.mediaRepository.reconcile()
         return if (remaining == 0) Result.success() else Result.retry()
     }

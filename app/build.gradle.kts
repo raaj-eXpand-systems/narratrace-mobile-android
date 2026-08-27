@@ -61,7 +61,7 @@ val releaseKeystorePassword = System.getenv("NARRATRACE_ANDROID_KEYSTORE_PASSWOR
 val releaseKeyAlias = System.getenv("NARRATRACE_ANDROID_KEY_ALIAS").orEmpty()
 val releaseKeyPassword = System.getenv("NARRATRACE_ANDROID_KEY_PASSWORD").orEmpty()
 val releaseVersionCode = System.getenv("NARRATRACE_ANDROID_VERSION_CODE").orEmpty().toIntOrNull() ?: 1
-val releaseVersionName = System.getenv("NARRATRACE_ANDROID_VERSION_NAME").orEmpty().ifBlank { "0.1.0" }
+val releaseVersionName = System.getenv("NARRATRACE_ANDROID_VERSION_NAME").orEmpty().ifBlank { "1.0.0" }
 val hasReleaseSigning = listOf(releaseKeystorePath, releaseKeystorePassword, releaseKeyAlias, releaseKeyPassword).all(String::isNotBlank)
 
 android {

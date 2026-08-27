@@ -196,6 +196,8 @@ flagged**. Two exceptions exist and are called out inline.
 |---|---|---|---|---|
 | `/me` | GET | bearer\|web | — | `accountId, providerSubject, email, authenticationMethod` |
 | `/account` | GET | bearer | — | `status, plan, billingCycle, activated, trialLifecycleStage, trialEndsAt, currentPeriodEndsAt, daysRemaining, hasAccess, canReadArchive, storage{usedBytes,availableBytes,totalBytes,usedLabel,availableLabel,totalLabel,usedPercent}, capabilities{captureMemories,createLetters,managePeople,familyCircles}, experiment{cardGateArm:'A'|'B',experienceFirst,resourceState:'available'|'claimed'|'completed'|null}` |
+| `/account/lifecycle` | GET | active or installation-bound lifecycle bearer | — | `state,effectiveAt,recoveryEndsAt,purgeEligibleAt,reasonCode,appealStatus,appealUrl,localDataDisposition,installationBound` |
+| `/account/closure` | GET, POST | active or lifecycle bearer | POST `{action:'close'|'reopen'}`; close requires authentication within 10 minutes | GET `accountClosed,closedAt,graceEndsAt,daysLeft,expired,supportRef,purgeScheduledAt,closureFinalizedAt,refundAmount,currency,requiresRecentAuthentication`; POST close `ok,accountClosed,supportRef`; reopen `ok,accountClosed,restoredStatus,requiresSignIn` |
 | `/profile` | GET, PATCH | bearer | PATCH any of: `displayName` ≤80, `birthYear` int 1900…year−5 or `null`/`""`, `preferredLanguage` `'en'\|'hi'` | `profile{email, displayName, birthYear, preferredLanguage}` |
 | `/legal/acceptance` | GET, POST | bearer | POST: `acceptTerms`, `acknowledgePrivacy`, `acknowledgeAiNotice` — **all three literal `true`** | `termsAccepted, aiNoticeAcknowledged, termsVersion, privacyVersion, aiNoticeVersion, acceptedAt` |
 | `/feedback` | POST | bearer | `senderName?`, `kind` (`'issue'`, else coerced `'feedback'`), `message`, `pageReference` (required when issue), `screenshot?{name,type,data}` base64 PNG/JPEG/WebP ≤5 MB. 8 MB body cap. RL 10/hr | `submitted: true` |
@@ -216,6 +218,7 @@ governed by `hasAccess`.
 
 | Route | Methods | Auth | Request | Data |
 |---|---|---|---|---|
+| `/mobile/runtime-config?platform=android` | GET | public, rate-limited | semantic platform query | `minimumSupportedVersion,maintenance,cacheForSeconds,behavior{capture:'last_known_good_then_allow_offline',upload:'fail_closed',billing:'fail_closed',quota:'fail_closed'}` |
 | `/mobile/installation` | PATCH | bearer + installation | `appVersion` semver **required**, `osVersion?` ≤40, `pushToken?` `^[a-f0-9]{64,512}$`, `notificationsEnabled?` (`false` clears stored token) | `updated: true` |
 | `/mobile/notification-preferences` | GET, PATCH | bearer | PATCH: subset of **snake_case** keys `processing_ready, invitations, letters, trial_and_billing, product_guidance, weekly_memory_nudge, re_engagement, yearbook_reminder, interview_anniversary`, all boolean. Empty/invalid → 400 | `preferences{…same snake_case keys…}` |
 | `/mobile/activity` | GET | bearer | `limit` 1–100 default 25, `cursor` opaque | `items[]`, `nextCursor` |

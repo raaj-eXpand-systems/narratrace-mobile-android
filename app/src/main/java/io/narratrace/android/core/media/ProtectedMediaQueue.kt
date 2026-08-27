@@ -30,6 +30,12 @@ data class PendingMedia(
     val chunked: Boolean = false,
 )
 
+internal fun protectedUploadAttention(items: List<PendingMedia>): String? {
+    val repeatedFailures = items.count { it.attempts >= ProtectedMediaQueue.RECONCILIATION_ATTENTION_ATTEMPTS }
+    if (repeatedFailures == 0) return null
+    return "$repeatedFailures protected upload${if (repeatedFailures == 1) "" else "s"} need attention after repeated secure-transfer attempts. Your content remains encrypted on this device."
+}
+
 /** App-private, authenticated-encryption staging. Plaintext is never retained. */
 class ProtectedMediaQueue(private val directory: File, private val cipher: CredentialCipher) {
     private val index = File(directory, "queue.bin")
@@ -159,6 +165,7 @@ class ProtectedMediaQueue(private val directory: File, private val cipher: Crede
     }.getOrDefault(false)
 
     companion object {
+        const val RECONCILIATION_ATTENTION_ATTEMPTS = 3
         const val MAX_BYTES = 50 * 1024 * 1024
         const val MAX_VIDEO_BYTES = 2_000_000_000L
         const val CHUNK_BYTES = 4 * 1024 * 1024

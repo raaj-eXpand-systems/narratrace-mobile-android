@@ -111,6 +111,7 @@ import io.narratrace.android.core.media.MediaSummary
 import io.narratrace.android.core.media.PendingMediaKind
 import io.narratrace.android.core.media.SecureAudioRecorder
 import io.narratrace.android.core.media.ProtectedUploadWorker
+import io.narratrace.android.core.media.protectedUploadAttention
 import io.narratrace.android.core.letters.LetterSummary
 import io.narratrace.android.core.letters.letterDeliveryStatus
 import io.narratrace.android.core.letters.statusLabel
@@ -119,6 +120,8 @@ import io.narratrace.android.core.delivery.DeliveryMode
 import io.narratrace.android.core.support.FeedbackScreenshot
 import io.narratrace.android.core.support.ProcessingJob
 import io.narratrace.android.core.network.ApiResult
+import io.narratrace.android.core.runtime.RuntimeBlockReason
+import io.narratrace.android.core.runtime.RuntimeResolution
 import java.time.LocalDateTime
 import io.narratrace.android.core.ui.NarratraceAppearance
 import java.util.UUID
@@ -135,6 +138,8 @@ internal const val MEDIA_INSIGHTS_HEADING = "Nia’s media insights"
 internal const val LEGAL_CHANGE_SUMMARY = "The Terms clarify prohibited media uploads, including content that remains prohibited even when the uploader created, owns, or appears in it, while preserving legitimate family and documentary contexts."
 internal const val NIA_DEFINITION = "Nia is the name Narratrace gives its AI assistant and AI-supported story companion. References to Nia mean Narratrace’s AI features, not a person."
 internal const val ADULT_ACCOUNT_NOTICE = "Narratrace accounts are intended only for people 18 years of age or older."
+internal const val ACCOUNT_CLOSURE_URL = "https://www.narratrace.io/account#closure"
+internal const val PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=io.narratrace.android"
 
 private fun InputStream.readBounded(maximum: Int): ByteArray? {
     val output = ByteArrayOutputStream(minOf(maximum, 64 * 1024))
@@ -152,16 +157,41 @@ private fun InputStream.readBounded(maximum: Int): ByteArray? {
 
 @Composable
 fun NarratraceApp(container: AppContainer) {
-    val appContext = LocalContext.current.applicationContext
     var onboarded by remember { mutableStateOf(container.onboardingStore.completed()) }
     if (!onboarded) { OnboardingScreen { if (container.onboardingStore.complete()) onboarded = true }; return }
     val authState by container.sessionManager.state.collectAsStateWithLifecycle()
-    LaunchedEffect(container) { container.sessionManager.restore(); container.offlineRepository.reconcile(); ProtectedUploadWorker.schedule(appContext) }
+    var runtimeResolution by remember { mutableStateOf<RuntimeResolution?>(null) }
+    var runtimeRefresh by remember { mutableIntStateOf(0) }
+    var offlineCapture by remember { mutableStateOf(false) }
+    LaunchedEffect(container) { container.sessionManager.restore() }
+    LaunchedEffect(container, runtimeRefresh) {
+        runtimeResolution = container.runtimeConfigRepository.resolve()
+    }
+
+    val resolution = runtimeResolution
+    if (resolution == null) { ProtectedLoadingScreen(); return }
+    if (resolution is RuntimeResolution.Blocked) {
+        val hasKnownLocalAccount = authState is AuthState.Authenticated || authState is AuthState.Locked
+        if (offlineCapture && hasKnownLocalAccount) {
+            OfflineCaptureScreen(container, Modifier) { offlineCapture = false }
+        } else {
+            RuntimeBlockedScreen(
+                resolution = resolution,
+                canCaptureOffline = hasKnownLocalAccount,
+                captureOffline = { offlineCapture = true },
+                signOut = if (hasKnownLocalAccount) container.sessionManager::signOut else null,
+                retry = { runtimeResolution = null; runtimeRefresh++ },
+            )
+        }
+        return
+    }
 
     when (authState) {
         AuthState.Restoring -> ProtectedLoadingScreen()
         AuthState.SignedOut -> SignInScreen(container = container, returning = false)
-        is AuthState.Locked -> SignInScreen(container = container, returning = true)
+        is AuthState.Locked -> LockedLifecycleGate(container) {
+            SignInScreen(container = container, returning = true)
+        }
         is AuthState.Authenticated -> AccountLifecycleGate(
             container = container,
             accessCredential = (authState as AuthState.Authenticated).session.accessToken,
@@ -174,6 +204,69 @@ fun NarratraceApp(container: AppContainer) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun LockedLifecycleGate(container: AppContainer, activeAccount: @Composable () -> Unit) {
+    val credential = remember { container.sessionManager.lifecycleCredential() }
+    var result by remember(credential) { mutableStateOf<ApiResult<AccountLifecycleSignal>?>(null) }
+    LaunchedEffect(credential) {
+        result = credential?.let { container.accountLifecycleApi.signal(it) }
+            ?: ApiResult.Unauthorized("Sign in again.", "")
+    }
+    when (val current = result) {
+        null -> ProtectedLoadingScreen()
+        is ApiResult.Success -> if (current.value.allowsOrdinaryAccess()) activeAccount()
+        else RestrictedLifecycleScreen(container, current.value, credential.orEmpty()) { result = null }
+        is ApiResult.Failure -> activeAccount()
+    }
+}
+
+@Composable
+private fun RuntimeBlockedScreen(
+    resolution: RuntimeResolution.Blocked,
+    canCaptureOffline: Boolean,
+    captureOffline: () -> Unit,
+    signOut: (() -> Unit)?,
+    retry: () -> Unit,
+) {
+    val context = LocalContext.current
+    val heading = when (resolution.reason) {
+        RuntimeBlockReason.Maintenance -> "Narratrace is undergoing maintenance"
+        RuntimeBlockReason.UpdateRequired -> "Update Narratrace to continue"
+        RuntimeBlockReason.OfflineCaptureOnly -> "Narratrace is temporarily offline"
+    }
+    val explanation = when (resolution.reason) {
+        RuntimeBlockReason.Maintenance -> "Online features are paused while maintenance is completed. Nothing queued on this device will be uploaded yet."
+        RuntimeBlockReason.UpdateRequired -> "This version can no longer connect safely. Install the current Android app before using online features. Nothing queued on this device will be uploaded yet."
+        RuntimeBlockReason.OfflineCaptureOnly -> "The app could not verify its current connection requirements. Online features and uploads remain paused."
+    }
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(heading, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
+        Text(
+            explanation,
+            Modifier.padding(top = 12.dp).semantics { liveRegion = LiveRegionMode.Assertive },
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        resolution.minimumSupportedVersion?.let {
+            Text("Minimum supported version: $it", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall)
+        }
+        if (canCaptureOffline) {
+            Button(captureOffline, Modifier.fillMaxWidth().padding(top = 20.dp)) { Text("Capture privately on this device") }
+            Text("Local captures stay encrypted and are not transferred until Narratrace verifies that online use is available.", style = MaterialTheme.typography.bodySmall)
+        }
+        if (resolution.reason == RuntimeBlockReason.UpdateRequired) {
+            Button(
+                { context.startActivity(Intent(Intent.ACTION_VIEW, PLAY_STORE_URL.toUri())) },
+                Modifier.fillMaxWidth().padding(top = 12.dp),
+            ) { Text("Open Google Play") }
+        }
+        TextButton(retry, Modifier.fillMaxWidth()) { Text("Check again") }
+        signOut?.let { TextButton(it, Modifier.fillMaxWidth()) { Text("Sign out on this device") } }
     }
 }
 
@@ -209,6 +302,7 @@ private fun AccountLifecycleGate(
     accessCredential: String,
     content: @Composable () -> Unit,
 ) {
+    val appContext = LocalContext.current.applicationContext
     var result by remember(accessCredential) { mutableStateOf<ApiResult<AccountLifecycleSignal>?>(null) }
     var refresh by remember { mutableIntStateOf(0) }
     var localPurgeFailed by remember { mutableStateOf(false) }
@@ -233,16 +327,34 @@ private fun AccountLifecycleGate(
                 if (localPurgeFailed) LifecycleCheckFailure("Protected local account data could not be removed safely. Narratrace has kept the app locked.") { localPurgeFailed = false; refresh++ }
                 else ProtectedLoadingScreen()
             }
-            current.value.allowsOrdinaryAccess() -> content()
-            else -> RestrictedLifecycleScreen(current.value) { refresh++ }
+            current.value.allowsOrdinaryAccess() -> {
+                LaunchedEffect(accessCredential, current.value.state) {
+                    container.offlineRepository.reconcile()
+                    ProtectedUploadWorker.schedule(appContext)
+                }
+                content()
+            }
+            else -> RestrictedLifecycleScreen(container, current.value, accessCredential) { refresh++ }
         }
         is ApiResult.Failure -> LifecycleCheckFailure(current.message) { refresh++ }
     }
 }
 
 @Composable
-private fun RestrictedLifecycleScreen(signal: AccountLifecycleSignal, retry: () -> Unit) {
+private fun RestrictedLifecycleScreen(
+    container: AppContainer,
+    signal: AccountLifecycleSignal,
+    accessCredential: String,
+    retry: () -> Unit,
+) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var closureStatus by remember(accessCredential) { mutableStateOf<ApiResult<io.narratrace.android.core.account.AccountClosureStatus>?>(null) }
+    var reopening by remember { mutableStateOf(false) }
+    var reopenMessage by remember { mutableStateOf<String?>(null) }
+    if (signal.state == "closure_pending") LaunchedEffect(accessCredential) {
+        closureStatus = container.accountLifecycleApi.closureStatus(accessCredential)
+    }
     val label = when (signal.state) {
         "closure_pending" -> "Account closure in recovery"
         "suspended" -> "Account access suspended"
@@ -258,6 +370,32 @@ private fun RestrictedLifecycleScreen(signal: AccountLifecycleSignal, retry: () 
             Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         signal.recoveryEndsAt?.let { Text("Recovery ends: $it", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall) }
+        (closureStatus as? ApiResult.Success)?.value?.let { status ->
+            status.daysLeft?.let { Text("$it day${if (it == 1) "" else "s"} remain to reopen this account.", Modifier.padding(top = 8.dp)) }
+            status.supportRef?.let { Text("Support reference: $it", style = MaterialTheme.typography.bodySmall) }
+            if (!status.expired && status.accountClosed) Button(
+                onClick = {
+                    reopening = true
+                    reopenMessage = null
+                    scope.launch {
+                        when (val reopened = container.accountLifecycleApi.reopen(accessCredential)) {
+                            is ApiResult.Success -> if (reopened.value.ok && reopened.value.requiresSignIn) {
+                                container.sessionManager.signOut()
+                            } else reopenMessage = "The account response could not be verified safely."
+                            is ApiResult.Failure -> reopenMessage = reopened.message
+                        }
+                        reopening = false
+                    }
+                },
+                enabled = !reopening,
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            ) { Text(if (reopening) "Reopening…" else "Reopen account") }
+        }
+        if (signal.state == "closure_pending" && closureStatus == null) LoadingMessage("Checking the account reopening window…")
+        if (signal.state == "closure_pending" && closureStatus is ApiResult.Failure) {
+            Text((closureStatus as ApiResult.Failure).message, color = MaterialTheme.colorScheme.error)
+        }
+        reopenMessage?.let { Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, color = MaterialTheme.colorScheme.error) }
         signal.appealStatus.takeIf { it in setOf("available", "submitted") }?.let { Text("Appeal status: ${it.replace('_', ' ')}", Modifier.padding(top = 8.dp)) }
         signal.safeAppealUrl()?.let { appealUrl ->
             Button(
@@ -265,8 +403,8 @@ private fun RestrictedLifecycleScreen(signal: AccountLifecycleSignal, retry: () 
                 Modifier.fillMaxWidth().padding(top = 12.dp),
             ) { Text(if (signal.appealStatus == "submitted") "View appeal status" else "Submit an appeal") }
         }
-        Button({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account".toUri())) }, Modifier.fillMaxWidth().padding(top = 20.dp)) { Text("Open account and recovery controls") }
-        Button({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account#export".toUri())) }, Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Export my data") }
+        Button({ context.startActivity(Intent(Intent.ACTION_VIEW, ACCOUNT_CLOSURE_URL.toUri())) }, Modifier.fillMaxWidth().padding(top = 20.dp)) { Text("Open account and recovery controls") }
+        if (signal.state != "closure_pending") Button({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account#export".toUri())) }, Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Export my data") }
         TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, TERMS_POLICY_URL.toUri())) }, Modifier.fillMaxWidth()) { Text("Terms of Service") }
         TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, PRIVACY_POLICY_URL.toUri())) }, Modifier.fillMaxWidth()) { Text("Privacy and data-rights information") }
         TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, COOKIE_POLICY_URL.toUri())) }, Modifier.fillMaxWidth()) { Text("Cookie Policy") }
@@ -614,31 +752,19 @@ private fun CustomerMoreScreen(
     var permissionsOpen by remember { mutableStateOf(false) }
     var activityOpen by remember { mutableStateOf(false) }
     var resourcesOpen by remember { mutableStateOf(false) }
-    var awaitingAccountManagementReturn by remember { mutableStateOf(false) }
-    val lifecycleOwner = LocalLifecycleOwner.current
+    var closureOpen by remember { mutableStateOf(false) }
     if (familyOpen) { FamilySharingScreen(container, modifier) { familyOpen = false }; return }
     if (settingsOpen) { ProfileSettingsScreen(container, modifier) { settingsOpen = false }; return }
     if (feedbackOpen) { FeedbackSupportScreen(container, modifier) { feedbackOpen = false }; return }
     if (permissionsOpen) { PrivacyPermissionsScreen(modifier) { permissionsOpen = false }; return }
     if (activityOpen) { ActivityScreen(container, modifier) { activityOpen = false }; return }
     if (resourcesOpen) { WebResourcesScreen(modifier) { resourcesOpen = false }; return }
+    if (closureOpen) { AccountClosureScreen(container, modifier) { closureOpen = false }; return }
     LaunchedEffect(refreshKey) {
         account = container.customerRepository.loadAccount()
         sessions = container.securityRepository.loadSessions()
         deliveries = container.lettersRepository.deliveries()
     }
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (shouldRefreshAccountAfterExternalBilling(awaitingAccountManagementReturn, event)) {
-                awaitingAccountManagementReturn = false
-                account = null
-                refreshKey++
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
     revokeDeliveryId?.let { id -> AlertDialog(
         onDismissRequest = { revokeDeliveryId = null }, title = { Text("Revoke this delivery?") },
         text = { Text("The recipient will no longer be able to receive this artifact through this delivery.") },
@@ -716,23 +842,9 @@ private fun CustomerMoreScreen(
                         )
                         current.value.billingCycle?.let { Text("Billing: ${it.replace('_', ' ').replaceFirstChar(Char::uppercase)}", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         if (current.value.experiment?.experienceFirst == true && current.value.experiment?.resourceState != "completed") {
-                            Text("Begin with one guided interview before choosing a plan. Other capture choices remain locked until you purchase a plan.", style = MaterialTheme.typography.bodySmall)
+                            Text("Your account includes one guided interview. Other capture choices are not available in this app.", style = MaterialTheme.typography.bodySmall)
                         } else if (current.value.experiment?.resourceState == "completed" && !current.value.hasAccess) {
-                            Text("Your guided interview experience is complete. Review Narratrace plans on the secure website to continue preserving memories.", style = MaterialTheme.typography.bodySmall)
-                        }
-                        if (!current.value.hasAccess) {
-                            Button(
-                                onClick = {
-                                    awaitingAccountManagementReturn = true
-                                    scope.launch { container.customerRepository.recordPlanViewed() }
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/subscribe".toUri()))
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) { Text("Review Narratrace plans") }
-                            Text(
-                                "Opens the secure Narratrace website. Your plan status refreshes when you return.",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
+                            Text("Your guided interview is complete. Additional capture choices are not available in this app.", style = MaterialTheme.typography.bodySmall)
                         }
                         Text("${current.value.storage.usedLabel} used · ${current.value.storage.availableLabel} available", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (current.value.deliveryContact?.status == "verified") {
@@ -798,12 +910,10 @@ private fun CustomerMoreScreen(
         if (container.latestSupportReference().isNotBlank()) item { TextButton(onClick = { (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Narratrace support reference", container.latestSupportReference())) }, Modifier.fillMaxWidth()) { Text("Copy latest support reference") } }
         item { Text("Account data and closure", style = MaterialTheme.typography.titleLarge) }
         item { Card(Modifier.fillMaxWidth().clickable(role = Role.Button) {
-            awaitingAccountManagementReturn = true
-            context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account".toUri()))
+            closureOpen = true
         }) { Column(Modifier.padding(16.dp)) {
-            Text("Open secure account management", style = MaterialTheme.typography.titleMedium)
-            Text("Request an archive, manage billing, or review closure and recovery on the authenticated website. Signing out does not delete your account.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("Your plan and billing status refresh automatically when you return.", style = MaterialTheme.typography.bodySmall)
+            Text("Manage account closure", style = MaterialTheme.typography.titleMedium)
+            Text("Review closure details, close this account, or open the secure website. Signing out does not delete your account.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Closing immediately restricts account access and revokes active sessions, but a routine closure cannot skip the 30-day recovery period. After it ends, deletion is attempted across active Narratrace-controlled systems and tracked providers; provider failures are retried.", style = MaterialTheme.typography.bodySmall)
             Text("Cold-storage tiering is not currently active. A Vault, lapsed, or dormant classification does not itself move or delete files.", style = MaterialTheme.typography.bodySmall)
         } } }
@@ -835,6 +945,115 @@ private fun CustomerMoreScreen(
         }
     }
 }
+
+@Composable
+private fun AccountClosureScreen(container: AppContainer, modifier: Modifier, close: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var credential by remember { mutableStateOf<String?>(null) }
+    var status by remember { mutableStateOf<ApiResult<io.narratrace.android.core.account.AccountClosureStatus>?>(null) }
+    var confirmClose by remember { mutableStateOf(false) }
+    var closing by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var supportReference by remember { mutableStateOf("") }
+    var awaitingWebReturn by remember { mutableStateOf(false) }
+    var refreshKey by remember { mutableIntStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    LaunchedEffect(refreshKey) {
+        when (val lease = container.sessionManager.accessToken()) {
+            is TokenLease.Valid -> {
+                credential = lease.accessToken
+                status = container.accountLifecycleApi.closureStatus(lease.accessToken)
+            }
+            else -> message = "Sign in again to review account closure."
+        }
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (shouldRefreshAccountAfterExternalManagement(awaitingWebReturn, event)) {
+                awaitingWebReturn = false
+                status = null
+                refreshKey++
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    if (confirmClose) AlertDialog(
+        onDismissRequest = { if (!closing) confirmClose = false },
+        title = { Text("Close this Narratrace account?") },
+        text = { Text("Online access and active sessions will be restricted immediately. You can reopen during the 30-day recovery period; permanent deletion begins only after that period ends.") },
+        confirmButton = { Button(
+            onClick = {
+                val token = credential ?: return@Button
+                closing = true
+                message = null
+                scope.launch {
+                    when (val result = container.accountLifecycleApi.close(token)) {
+                        is ApiResult.Success -> if (
+                            result.value.ok && result.value.accountClosed &&
+                            container.sessionManager.retainLifecycleCredentialAfterClosure(token)
+                        ) {
+                            supportReference = result.value.supportRef.orEmpty()
+                            confirmClose = false
+                            (context as? Activity)?.recreate()
+                        } else message = "The closure response could not be verified safely."
+                        is ApiResult.LegalAcceptanceRequired -> message = result.message
+                        is ApiResult.Unauthorized -> message = "Sign in again before closing your account."
+                        is ApiResult.Failure -> { message = result.message; supportReference = result.supportReference }
+                    }
+                    closing = false
+                }
+            },
+            enabled = !closing && credential != null,
+        ) { Text(if (closing) "Closing…" else "Close account") } },
+        dismissButton = { TextButton({ confirmClose = false }, enabled = !closing) { Text("Keep account open") } },
+    )
+
+    LazyColumn(
+        modifier.fillMaxSize(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item { Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = close, enabled = !closing) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to account") }
+            Text("Account closure", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
+        } }
+        when (val current = status) {
+            null -> item { if (message == null) LoadingMessage("Checking account closure details…") }
+            is ApiResult.Success -> {
+                item { Text("Closing immediately restricts account access and revokes active sessions. A 30-day recovery period begins before permanent deletion is attempted.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                if (current.value.refundAmount > 0) item {
+                    Text("Estimated prorated refund: ${formatMinorCurrency(current.value.refundAmount, current.value.currency)}", style = MaterialTheme.typography.titleMedium)
+                }
+                item { Text("For security, Narratrace requires a sign-in from the last 10 minutes before closing an account.", style = MaterialTheme.typography.bodySmall) }
+                if (!current.value.accountClosed) item {
+                    Button({ confirmClose = true }, enabled = !closing, modifier = Modifier.fillMaxWidth()) { Text("Close my account") }
+                }
+            }
+            is ApiResult.Failure -> item { Text(current.message, color = MaterialTheme.colorScheme.error) }
+        }
+        message?.let { current -> item {
+            Text(current, Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, color = MaterialTheme.colorScheme.error)
+            if (current.contains("Sign in again", ignoreCase = true)) Button(
+                { container.sessionManager.signOut() }, Modifier.fillMaxWidth(),
+            ) { Text("Sign in again") }
+        } }
+        if (supportReference.isNotBlank()) item { Text("Support reference: $supportReference", style = MaterialTheme.typography.bodySmall) }
+        item { TextButton(
+            onClick = {
+                awaitingWebReturn = true
+                context.startActivity(Intent(Intent.ACTION_VIEW, ACCOUNT_CLOSURE_URL.toUri()))
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Open account closure on the secure website") } }
+    }
+}
+
+internal fun formatMinorCurrency(amount: Int, currency: String): String =
+    "${currency.uppercase(java.util.Locale.US)} ${"%.2f".format(java.util.Locale.US, amount.coerceAtLeast(0) / 100.0)}"
 
 private fun String.platformLabel(): String = when (lowercase()) {
     "ios" -> "iPhone or iPad"
@@ -994,6 +1213,66 @@ private fun CircleDetailScreen(container: AppContainer, circle: io.narratrace.an
 }
 
 @Composable
+private fun OfflineCaptureScreen(container: AppContainer, modifier: Modifier, close: () -> Unit) {
+    val context = LocalContext.current
+    var recordingAudio by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    if (recordingAudio) {
+        AudioCaptureScreen(container, modifier, null, null, allowUpload = false) { recordingAudio = false }
+        return
+    }
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            val mime = context.contentResolver.getType(uri)?.lowercase().orEmpty()
+            if (mime !in setOf("image/jpeg", "image/png", "image/webp", "image/heic", "image/heif")) {
+                message = "Choose a supported photo format."
+            } else {
+                val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBounded(io.narratrace.android.core.media.ProtectedMediaQueue.MAX_BYTES) } }.getOrNull()
+                val extension = when (mime) { "image/png" -> "png"; "image/webp" -> "webp"; "image/heic" -> "heic"; "image/heif" -> "heif"; else -> "jpg" }
+                val queued = bytes?.let { container.mediaRepository.queue.enqueue(it, PendingMediaKind.Photo, "narratrace-${UUID.randomUUID()}.$extension", mime) }
+                message = if (queued == null) "The photo could not be encrypted safely. The original was not uploaded."
+                else "Photo encrypted on this device. It has not been uploaded."
+            }
+        }
+    }
+    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            val mime = context.contentResolver.getType(uri)?.lowercase().orEmpty()
+            if (mime !in setOf("video/mp4", "video/quicktime")) {
+                message = "Choose an MP4 or QuickTime video."
+            } else {
+                val queued = runCatching { context.contentResolver.openInputStream(uri)?.use {
+                    container.mediaRepository.queue.enqueueVideoStream(
+                        it, PendingMediaKind.StandaloneVideo,
+                        "narratrace-${UUID.randomUUID()}.${if (mime == "video/quicktime") "mov" else "mp4"}", mime,
+                    )
+                } }.getOrNull()
+                message = if (queued == null) "This video could not be encrypted safely or exceeds the 2 GB limit."
+                else "Video encrypted on this device. It has not been uploaded."
+            }
+        }
+    }
+    BackHandler(onBack = close)
+    LazyColumn(
+        modifier.fillMaxSize(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item { Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to service status") }
+            Text("Private offline capture", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
+        } }
+        item { Text("Captures are encrypted on this device. Uploads, sharing, quota decisions, and other online actions remain paused.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Button({ recordingAudio = true }, Modifier.fillMaxWidth()) { Text("Record audio") } }
+        item { Button({ photoPicker.launch("image/*") }, Modifier.fillMaxWidth()) { Text("Choose a photo") } }
+        item { Button({ videoPicker.launch("video/*") }, Modifier.fillMaxWidth()) { Text("Choose a video") } }
+        message?.let { current -> item { Text(current, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+        val waiting = container.mediaRepository.queue.items().size
+        if (waiting > 0) item { Text("$waiting encrypted capture${if (waiting == 1) "" else "s"} waiting on this device.", style = MaterialTheme.typography.bodySmall) }
+    }
+}
+
+@Composable
 private fun CustomerCaptureScreen(
     container: AppContainer,
     modifier: Modifier = Modifier,
@@ -1070,17 +1349,20 @@ private fun CustomerCaptureScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item { Text("Capture a Memory", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
+                protectedUploadAttention(container.mediaRepository.queue.items())?.let { attention -> item {
+                    Text(attention, Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, color = MaterialTheme.colorScheme.error)
+                } }
                 item { Text("Nothing is shared automatically.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 if (experienceFirstAccess) item {
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("Begin with one guided interview", style = MaterialTheme.typography.titleMedium)
-                            Text("You can preserve one guided interview before choosing a plan. Other capture choices become available after you purchase a plan.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Your account includes one guided interview. Other capture choices are not available in this app.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
                 if (current.value.experiment?.resourceState == "completed" && !fullCaptureAccess) item {
-                    Text("Your guided experience is complete. Choose a plan on the secure Narratrace website to continue preserving memories.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Your guided interview is complete. Additional capture choices are not available in this app.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 item {
                     Card(
@@ -1235,6 +1517,7 @@ private fun AudioCaptureScreen(
     maxSeconds: Int?,
     assisted: Boolean = false,
     question: String? = null,
+    allowUpload: Boolean = true,
     close: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -1285,8 +1568,8 @@ private fun AudioCaptureScreen(
                         )
                         if (queued == null) { message = "The recording could not be encrypted safely."; busy = false }
                         else scope.launch {
-                            val remaining = container.mediaRepository.reconcile()
-                            message = if (remaining == 0) "Saved securely. The local recording was removed after verified preservation."
+                            val remaining = if (allowUpload) container.mediaRepository.reconcile() else container.mediaRepository.queue.items().size
+                            message = if (allowUpload && remaining == 0) "Saved securely. The local recording was removed after verified preservation."
                             else "Protected on this device. Narratrace will retry when secure transfer is available."
                             busy = false
                         }
@@ -1300,7 +1583,10 @@ private fun AudioCaptureScreen(
         val waiting = container.mediaRepository.queue.items().size
         if (waiting > 0) {
             Text("$waiting protected upload${if (waiting == 1) "" else "s"} waiting.", style = MaterialTheme.typography.bodySmall)
-            TextButton(onClick = { busy = true; scope.launch { container.mediaRepository.reconcile(); busy = false } }, enabled = !busy) { Text("Retry protected uploads") }
+            protectedUploadAttention(container.mediaRepository.queue.items())?.let {
+                Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, color = MaterialTheme.colorScheme.error)
+            }
+            if (allowUpload) TextButton(onClick = { busy = true; scope.launch { container.mediaRepository.reconcile(); busy = false } }, enabled = !busy) { Text("Retry protected uploads") }
         }
     }
 }
@@ -2243,6 +2529,9 @@ private fun CustomerHomeScreen(container: AppContainer, modifier: Modifier = Mod
         horizontalAlignment = Alignment.Start,
     ) {
         Text("Home", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
+        protectedUploadAttention(container.mediaRepository.queue.items())?.let {
+            Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, color = MaterialTheme.colorScheme.error)
+        }
         when (val current = result) {
             null -> {
                 LoadingMessage("Loading your private Home…")
@@ -2331,7 +2620,7 @@ private fun String.statusLabel(): String = when (this) {
     else -> "Access unavailable"
 }
 
-internal fun shouldRefreshAccountAfterExternalBilling(
+internal fun shouldRefreshAccountAfterExternalManagement(
     awaitingReturn: Boolean,
     event: Lifecycle.Event,
 ): Boolean = awaitingReturn && event == Lifecycle.Event.ON_RESUME

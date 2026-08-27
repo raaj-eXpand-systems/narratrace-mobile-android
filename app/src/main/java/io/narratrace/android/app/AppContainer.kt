@@ -34,6 +34,9 @@ import io.narratrace.android.core.offline.OfflineRepository
 import io.narratrace.android.core.offline.OnboardingStore
 import io.narratrace.android.core.support.SupportApi
 import io.narratrace.android.core.support.SupportRepository
+import io.narratrace.android.core.runtime.RuntimeConfigApi
+import io.narratrace.android.core.runtime.RuntimeConfigRepository
+import io.narratrace.android.core.runtime.SharedPreferencesRuntimeConfigCache
 import java.io.File
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
@@ -98,6 +101,14 @@ class AppContainer(context: Context) {
 
     val customerRepository: CustomerRepository by lazy {
         CustomerRepository(customerApi, sessionManager)
+    }
+
+    internal val runtimeConfigRepository: RuntimeConfigRepository by lazy {
+        RuntimeConfigRepository(
+            gateway = RuntimeConfigApi(apiClient),
+            cache = SharedPreferencesRuntimeConfigCache(appContext),
+            currentVersion = BuildConfig.VERSION_NAME,
+        )
     }
 
     val mediaRepository: MediaAndInterviewRepository by lazy {
