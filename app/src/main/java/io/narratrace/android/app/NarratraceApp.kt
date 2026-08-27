@@ -130,6 +130,8 @@ import kotlinx.coroutines.delay
 internal const val TERMS_POLICY_URL = "https://getnarratrace.com/terms"
 internal const val PRIVACY_POLICY_URL = "https://getnarratrace.com/privacy"
 internal const val COOKIE_POLICY_URL = "https://getnarratrace.com/cookies"
+internal const val LEGAL_REVIEW_HEADING = "Review Narratrace Terms"
+internal const val MEDIA_INSIGHTS_HEADING = "Nia’s media insights"
 
 private fun InputStream.readBounded(maximum: Int): ByteArray? {
     val output = ByteArrayOutputStream(minOf(maximum, 64 * 1024))
@@ -294,22 +296,22 @@ private fun RequiredLegalGate(container: AppContainer, content: @Composable () -
     val accepted = (result as? FeatureResult.Success)?.value
     if (accepted != null && requiredLegalAcceptanceComplete(accepted)) { content(); return }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Text("Review current legal terms", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
-        item { Text("The updated Terms and Privacy Policy clarify account lifecycle and verified deletion timing, content rights, cookies, global privacy rights, security incidents, warranties, liability, and New Jersey dispute rules.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text(LEGAL_REVIEW_HEADING, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
+        item { Text("The Terms and Privacy Policy explain account lifecycle and verified deletion timing, content rights, cookies, global privacy rights, security incidents, warranties, liability, and New Jersey dispute rules. Review the current documents before continuing. Privacy acknowledgement confirms receipt of the notice; it is not consent to optional AI processing.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         when (val current = result) {
             null -> item { LoadingMessage("Checking current document versions…") }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to review the current documents.", color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Unavailable -> item { Text(current.message, color = MaterialTheme.colorScheme.error); Button({ refresh++ }) { Text("Try again") } }
             is FeatureResult.Success -> {
                 val legal = current.value
-                if (!legal.termsAccepted) item { LegalChoiceCard("Terms of Service", legal.termsVersion, "Read the complete Terms before accepting.", TERMS_POLICY_URL, "Accept current Terms", busy) {
+                if (!legal.termsAccepted) item { LegalChoiceCard("Terms of Service", "Read the complete Terms before accepting.", TERMS_POLICY_URL, "Accept current Terms", busy) {
                     busy = true; scope.launch { result = container.mediaRepository.acceptTerms(); busy = false }
                 } }
-                if (!legal.privacyAcknowledged) item { LegalChoiceCard("Privacy Policy", legal.privacyVersion, "Acknowledge that you received and reviewed the current Privacy Policy. This is not consent to optional processing.", PRIVACY_POLICY_URL, "Acknowledge Privacy Policy", busy) {
+                if (!legal.privacyAcknowledged) item { LegalChoiceCard("Privacy Policy", "Acknowledge that you received and reviewed the current Privacy Policy. This is not consent to optional processing.", PRIVACY_POLICY_URL, "Acknowledge Privacy Policy", busy) {
                     busy = true; scope.launch { result = container.mediaRepository.acknowledgePrivacy(); busy = false }
                 } }
                 if (!legal.contentRightsAttested) item { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Content rights · ${legal.contentRightsVersion}", style = MaterialTheme.typography.titleMedium)
+                    Text("Content rights", style = MaterialTheme.typography.titleMedium)
                     Text("I represent that I own, or have all necessary licenses, permissions, privacy and publicity rights, and recording consent for content I upload or record in Narratrace, including content involving other people or minors.")
                     Button({ busy = true; scope.launch { result = container.mediaRepository.attestContentRights(); busy = false } }, enabled = !busy) { Text("Attest content rights") }
                 } } }
@@ -322,10 +324,10 @@ private fun RequiredLegalGate(container: AppContainer, content: @Composable () -
 }
 
 @Composable
-private fun LegalChoiceCard(title: String, version: String, explanation: String, url: String, action: String, busy: Boolean, choose: () -> Unit) {
+private fun LegalChoiceCard(title: String, explanation: String, url: String, action: String, busy: Boolean, choose: () -> Unit) {
     val context = LocalContext.current
     Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("$title · $version", style = MaterialTheme.typography.titleMedium)
+        Text(title, style = MaterialTheme.typography.titleMedium)
         Text(explanation)
         TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }) { Text("Read $title") }
         Button(choose, enabled = !busy) { Text(action) }
@@ -864,7 +866,7 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
         items(listOf(NarratraceAppearance.System, NarratraceAppearance.Light, NarratraceAppearance.Dark), key = { it.name }) { appearance -> Button(onClick = { if (container.appearanceStore.save(appearance)) (context as? Activity)?.recreate() }, Modifier.fillMaxWidth()) { Text(appearance.name + if (container.appearanceStore.load() == appearance) " ✓" else "") } }
         item { Text("Upcoming themes", style = MaterialTheme.typography.titleMedium) }
         items(listOf(NarratraceAppearance.UpcomingPreview, NarratraceAppearance.ChaiLatte), key = { it.name }) { appearance -> Button(onClick = { if (container.appearanceStore.save(appearance)) (context as? Activity)?.recreate() }, Modifier.fillMaxWidth()) { Text(appearance.name.replace("UpcomingPreview", "Narratrace Blue").replace("ChaiLatte", "Chai Latte") + if (container.appearanceStore.load() == appearance) " ✓" else "") } }
-        item { Text("Nia media insights", style = MaterialTheme.typography.titleLarge) }
+        item { Text(MEDIA_INSIGHTS_HEADING, style = MaterialTheme.typography.titleLarge) }
         item { Text("Photo and video insights are off by default. Enable each purpose separately only if you want future media sent for that AI analysis. Turning either off keeps the media usable.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         (mediaAiPreferences as? FeatureResult.Success)?.value?.preferences?.let { prefs ->
             val choices = listOf("photo_ai_insights_enabled" to ("Photo insights" to prefs.photoAiInsightsEnabled), "video_ai_insights_enabled" to ("Video insights" to prefs.videoAiInsightsEnabled))
@@ -1320,7 +1322,7 @@ private fun GuidedInterviewsScreen(container: AppContainer, modifier: Modifier, 
         item { Text("Nia uses your responses to suggest thoughtful follow-up questions. AI may make mistakes; review generated material before relying on or sharing it.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (legal is FeatureResult.Success && !(legal as FeatureResult.Success<io.narratrace.android.core.media.LegalAcceptance>).value.aiNoticeAcknowledged) {
             item { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("AI notice · ${(legal as FeatureResult.Success<io.narratrace.android.core.media.LegalAcceptance>).value.aiNoticeVersion}", style = MaterialTheme.typography.titleMedium)
+                Text("AI notice", style = MaterialTheme.typography.titleMedium)
                 Text("Nia uses your responses to generate follow-up questions, transcripts, summaries, insights, and requested narratives. AI can make mistakes; review results before relying on or sharing them.")
                 val context = LocalContext.current
                 TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, "$TERMS_POLICY_URL#ai-generated-content".toUri())) }) { Text("Read the AI notice") }

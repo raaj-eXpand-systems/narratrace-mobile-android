@@ -7,6 +7,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import io.narratrace.android.app.requiredLegalAcceptanceComplete
 import io.narratrace.android.app.COOKIE_POLICY_URL
+import io.narratrace.android.app.LEGAL_REVIEW_HEADING
+import io.narratrace.android.app.MEDIA_INSIGHTS_HEADING
 import io.narratrace.android.app.PRIVACY_POLICY_URL
 import io.narratrace.android.app.TERMS_POLICY_URL
 
@@ -44,6 +46,11 @@ class MediaAndInterviewContractTest {
         assertEquals("https://getnarratrace.com/terms", TERMS_POLICY_URL)
         assertEquals("https://getnarratrace.com/privacy", PRIVACY_POLICY_URL)
         assertEquals("https://getnarratrace.com/cookies", COOKIE_POLICY_URL)
+    }
+
+    @Test fun `native legal and media headings use current customer language`() {
+        assertEquals("Review Narratrace Terms", LEGAL_REVIEW_HEADING)
+        assertEquals("Nia’s media insights", MEDIA_INSIGHTS_HEADING)
     }
 
     @Test fun `legal choices serialize separately and never bundle optional consent`() {
