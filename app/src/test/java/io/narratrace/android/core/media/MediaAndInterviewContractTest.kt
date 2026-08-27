@@ -36,7 +36,7 @@ class MediaAndInterviewContractTest {
         val accepted = LegalAcceptance(
             termsAccepted = true, privacyAcknowledged = true, aiNoticeAcknowledged = false,
             specialCategoryConsent = false, contentRightsAttested = true,
-            termsVersion = "2026-08-27.1", privacyVersion = "2026-08-26.2",
+            termsVersion = "2026-08-27.1", privacyVersion = "2026-08-27.2",
             aiNoticeVersion = "2026-08-26.1", contentRightsVersion = "2026-08-26",
         )
         assertTrue(requiredLegalAcceptanceComplete(accepted))
@@ -55,7 +55,7 @@ class MediaAndInterviewContractTest {
         assertEquals("Review Narratrace Terms", LEGAL_REVIEW_HEADING)
         assertEquals("Nia’s media insights", MEDIA_INSIGHTS_HEADING)
         assertEquals(
-            "The Terms clarify prohibited media uploads, including content that remains prohibited even when the uploader created, owns, or appears in it, while preserving legitimate family and documentary contexts.",
+            "The Privacy Policy clarifies that optional photo and video insights require your affirmative choice and can be turned off in Account.",
             LEGAL_CHANGE_SUMMARY,
         )
         assertTrue(NIA_DEFINITION.contains("AI assistant"))
