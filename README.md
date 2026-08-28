@@ -19,8 +19,10 @@ Narratrace Admin and Operations are web-only and are intentionally excluded from
 
 ## Current milestone
 
-- Google Credential Manager admission with a fresh server nonce
-- optional customer authenticator or recovery-code forwarding
+- hosted Narratrace authentication in an Android Custom Tab with S256 PKCE and a verified HTTPS App Link return
+- server-owned invitation, Google/Apple authorization, verification, MFA, legal acceptance, and onboarding decisions
+- encrypted pending-auth state and installation-bound, rotating mobile sessions
+- compatibility-only legacy Google Credential Manager admission for older runtime contracts
 - installation-bound identity and encrypted session restoration
 - single-flight access-token rotation and a 30-minute inactivity lock
 - authenticated Home, Capture, Library, People, and More navigation shell
@@ -42,7 +44,7 @@ Narratrace Admin and Operations are web-only and are intentionally excluded from
 - encrypted offline Letter drafts with authoritative lease-based reconciliation
 - privacy-first onboarding and verified family/Circle invitation-link handoff
 - optional Doppler-configured Firebase push registration and token rotation
-- secure web handoff for archives, billing, closure, and recovery
+- server-authored hosted-web handoff for every upgrade, plan change, add-on, billing recovery, archive, closure, and recovery action
 - feedback and issue reporting with a validated optional image attachment
 - privacy and permissions status without surprise permission prompts
 - Activity processing details and safe optional-processing retry

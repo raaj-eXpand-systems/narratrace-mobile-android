@@ -69,6 +69,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -85,6 +86,8 @@ import androidx.activity.compose.BackHandler
 import io.narratrace.android.core.auth.AuthState
 import io.narratrace.android.core.auth.EmailVerificationChallenge
 import io.narratrace.android.core.auth.SignInResult
+import io.narratrace.android.core.auth.HostedAuthEvent
+import io.narratrace.android.core.auth.HostedAuthStartResult
 import io.narratrace.android.core.auth.RevokeScope
 import io.narratrace.android.core.auth.RevocationResult
 import io.narratrace.android.core.auth.SecuritySessionsResult
@@ -477,6 +480,110 @@ private fun LegalChoiceCard(title: String, explanation: String, url: String, act
 
 @Composable
 private fun SignInScreen(container: AppContainer, returning: Boolean) {
+    if (container.hostedAuthenticationAvailable()) {
+        HostedSignInScreen(container, returning)
+    } else {
+        LegacySignInScreen(container, returning)
+    }
+}
+
+/**
+ * Protocol-v1 sign-in is intentionally only a launcher and return-status surface.
+ * Invitation, provider authorization, verification, MFA, legal acceptance, arm
+ * selection, and onboarding stay in the hosted Narratrace flow.
+ */
+@Composable
+private fun HostedSignInScreen(container: AppContainer, returning: Boolean) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val event by container.hostedAuthenticationCoordinator.event.collectAsStateWithLifecycle()
+    var starting by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.Start,
+    ) {
+        Text(
+            if (returning) "Welcome back" else "Every family has stories worth keeping.",
+            Modifier.semantics { heading() },
+            style = MaterialTheme.typography.headlineLarge,
+        )
+        Text(
+            if (returning) "Continue securely on the Narratrace website to unlock this device."
+            else "Continue securely on the Narratrace website. Invitation, account verification, and setup are completed there.",
+            Modifier.padding(top = 16.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyLarge,
+        )
+        Text(
+            "Narratrace returns only a short-lived sign-in code to this app. Your invitation, email, and account details stay out of the return link.",
+            Modifier.padding(top = 12.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Button(
+            onClick = {
+                starting = true
+                container.hostedAuthenticationCoordinator.resetEvent()
+                scope.launch {
+                    when (val result = container.hostedAuthenticationCoordinator.start()) {
+                        is HostedAuthStartResult.OpenBrowser -> CustomTabsIntent.Builder()
+                            .setShareState(CustomTabsIntent.SHARE_STATE_OFF)
+                            .setShowTitle(true)
+                            .build()
+                            .launchUrl(context, result.authorizeUrl.toUri())
+                        is HostedAuthStartResult.Failed -> Unit
+                    }
+                    starting = false
+                }
+            },
+            modifier = Modifier.fillMaxWidth().padding(top = 24.dp).height(52.dp),
+            enabled = !starting && event !is HostedAuthEvent.Exchanging && container.isApiConfigured,
+        ) {
+            if (starting || event is HostedAuthEvent.Exchanging) {
+                LoadingMessage(if (starting) "Preparing secure sign-in…" else "Finishing secure sign-in…")
+            } else {
+                Text(if (event is HostedAuthEvent.AwaitingBrowser) "Start sign-in again" else "Continue securely on the web")
+            }
+        }
+        if (event is HostedAuthEvent.AwaitingBrowser) {
+            Text(
+                "Finish in the secure browser. If it was closed, start sign-in again.",
+                Modifier.padding(top = 12.dp).semantics { liveRegion = LiveRegionMode.Polite },
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        (event as? HostedAuthEvent.Failed)?.let { failure ->
+            Text(
+                failure.message,
+                Modifier.padding(top = 12.dp).semantics { liveRegion = LiveRegionMode.Assertive },
+                color = MaterialTheme.colorScheme.error,
+            )
+            if (failure.supportReference.isNotBlank()) Text(
+                "Support reference: ${failure.supportReference}",
+                Modifier.padding(top = 4.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        if (!container.isApiConfigured) Text(
+            "This build is not connected to the Narratrace service.",
+            Modifier.padding(top = 12.dp),
+            color = MaterialTheme.colorScheme.error,
+        )
+        Text(
+            ADULT_ACCOUNT_NOTICE,
+            Modifier.padding(top = 16.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+/** Compatibility-only admission for runtime responses predating hosted protocol v1. */
+@Composable
+private fun LegacySignInScreen(container: AppContainer, returning: Boolean) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var inviteCode by remember { mutableStateOf("") }

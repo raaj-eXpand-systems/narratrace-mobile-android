@@ -6,6 +6,9 @@ import io.narratrace.android.BuildConfig
 import io.narratrace.android.core.auth.AppInstallationIdentity
 import io.narratrace.android.core.auth.AuthApi
 import io.narratrace.android.core.auth.AuthenticationCoordinator
+import io.narratrace.android.core.auth.HostedAuthApi
+import io.narratrace.android.core.auth.HostedAuthenticationCoordinator
+import io.narratrace.android.core.auth.PendingHostedAuthStore
 import io.narratrace.android.core.auth.CredentialManagerGoogleProvider
 import io.narratrace.android.core.auth.FileBlobStore
 import io.narratrace.android.core.auth.KeystoreCredentialCipher
@@ -87,6 +90,7 @@ class AppContainer(context: Context) {
     val isApiConfigured: Boolean get() = BuildConfig.API_BASE_URL.isNotBlank()
 
     val authApi: AuthApi by lazy { AuthApi(apiClient) }
+    private val installationIdentity by lazy { AppInstallationIdentity(appContext) }
     val customerApi: CustomerApi by lazy { CustomerApi(apiClient) }
     val accountLifecycleApi: AccountLifecycleApi by lazy { AccountLifecycleApi(apiClient) }
     val securityRepository: SecurityRepository by lazy { SecurityRepository(authApi, sessionManager) }
@@ -98,6 +102,23 @@ class AppContainer(context: Context) {
         )
         SessionManager(store = store, refresher = authApi::refresh)
     }
+
+    internal val hostedAuthenticationCoordinator: HostedAuthenticationCoordinator by lazy {
+        HostedAuthenticationCoordinator(
+            gateway = HostedAuthApi(apiClient),
+            installationIdProvider = installationIdentity,
+            pendingStore = PendingHostedAuthStore(
+                cipher = KeystoreCredentialCipher("io.narratrace.android.hosted-auth.v1"),
+                blobStore = FileBlobStore(File(appContext.filesDir, "pending-hosted-auth.bin")),
+            ),
+            sessionAdopter = SessionAdopter(sessionManager::adopt),
+            appVersion = BuildConfig.VERSION_NAME.removeSuffix("-debug"),
+            osVersion = Build.VERSION.RELEASE.take(40),
+        )
+    }
+
+    internal fun hostedAuthenticationAvailable(): Boolean =
+        runtimeConfigRepository.hostedAuthenticationAvailable()
 
     val customerRepository: CustomerRepository by lazy {
         CustomerRepository(customerApi, sessionManager)
@@ -155,7 +176,7 @@ class AppContainer(context: Context) {
             identityTokenRequester = IdentityTokenRequester { nonce ->
                 CredentialManagerGoogleProvider().requestIdToken(context, nonce)
             },
-            installationIdProvider = AppInstallationIdentity(appContext),
+            installationIdProvider = installationIdentity,
             sessionAdopter = SessionAdopter(sessionManager::adopt),
             appVersion = BuildConfig.VERSION_NAME.removeSuffix("-debug"),
             osVersion = Build.VERSION.RELEASE.take(40),

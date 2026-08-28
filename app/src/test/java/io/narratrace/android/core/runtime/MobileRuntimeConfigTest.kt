@@ -13,11 +13,13 @@ class MobileRuntimeConfigTest {
     @Test fun `runtime response decodes the authoritative fail-closed behavior`() {
         val value = NarratraceJson.decodeFromString<MobileRuntimeConfig>("""{
           "minimumSupportedVersion":"1.2.3","maintenance":false,"cacheForSeconds":86400,
-          "behavior":{"capture":"last_known_good_then_allow_offline","upload":"fail_closed","billing":"fail_closed","quota":"fail_closed"}
+          "behavior":{"capture":"last_known_good_then_allow_offline","upload":"fail_closed","billing":"fail_closed","quota":"fail_closed"},
+          "authentication":{"mode":"hosted","protocolVersion":1,"startPath":"/api/v1/auth/hosted/start","legacyNativeAdmission":"compatibility_only"}
         }""")
 
         assertEquals("1.2.3", value.minimumSupportedVersion)
         assertEquals("fail_closed", value.behavior.upload)
+        assertEquals(1, value.authentication?.protocolVersion)
         assertEquals(86_400, value.cacheForSeconds)
     }
 
@@ -39,10 +41,19 @@ class MobileRuntimeConfigTest {
 
     @Test fun `valid compatible config allows online use and is cached`() = runTest {
         val cache = MemoryCache()
-        val result = repository(config(), cache = cache).resolve()
+        val repository = repository(config(), cache = cache)
+        val result = repository.resolve()
 
         assertEquals(RuntimeResolution.Available, result)
         assertEquals("1.0.0", cache.value?.value?.minimumSupportedVersion)
+        assertTrue(repository.hostedAuthenticationAvailable())
+    }
+
+    @Test fun `older runtime contract uses only the bounded legacy admission fallback`() = runTest {
+        val repository = repository(config().copy(authentication = null))
+
+        assertEquals(RuntimeResolution.Available, repository.resolve())
+        assertTrue(!repository.hostedAuthenticationAvailable())
     }
 
     @Test fun `offline lookup preserves a fresh cached blocker but never authorizes uploads`() = runTest {
@@ -99,6 +110,12 @@ class MobileRuntimeConfigTest {
             upload = "fail_closed",
             billing = "fail_closed",
             quota = "fail_closed",
+        ),
+        authentication = MobileAuthenticationContract(
+            mode = "hosted",
+            protocolVersion = 1,
+            startPath = "/api/v1/auth/hosted/start",
+            legacyNativeAdmission = "compatibility_only",
         ),
     )
 

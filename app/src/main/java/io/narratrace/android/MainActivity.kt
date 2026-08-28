@@ -5,9 +5,12 @@ import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
 import io.narratrace.android.app.AppContainer
 import io.narratrace.android.app.NarratraceApp
 import io.narratrace.android.core.ui.NarratraceTheme
+import io.narratrace.android.core.auth.parseHostedAuthCallback
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val container by lazy { AppContainer(applicationContext) }
@@ -15,13 +18,28 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        captureInvite(intent)
+        captureInboundLink(intent)
         setContent {
             NarratraceTheme(appearance = container.appearanceStore.load()) { NarratraceApp(container) }
         }
     }
 
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); captureInvite(intent); recreate() }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        captureInboundLink(intent)
+    }
+
+    private fun captureInboundLink(intent: Intent?) {
+        val rawUri = intent?.dataString ?: return
+        if (parseHostedAuthCallback(rawUri) != null ||
+            rawUri.startsWith("https://www.narratrace.io/mobile/auth/callback/android")
+        ) {
+            lifecycleScope.launch { container.hostedAuthenticationCoordinator.handleCallback(rawUri) }
+            return
+        }
+        captureInvite(intent)
+    }
 
     private fun captureInvite(intent: Intent?) {
         val uri = intent?.data ?: return

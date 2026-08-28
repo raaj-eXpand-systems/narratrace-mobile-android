@@ -16,11 +16,21 @@ data class MobileRuntimeBehavior(
 )
 
 @Serializable
+data class MobileAuthenticationContract(
+    val mode: String,
+    val protocolVersion: Int,
+    val startPath: String,
+    val legacyNativeAdmission: String,
+)
+
+@Serializable
 data class MobileRuntimeConfig(
     val minimumSupportedVersion: String,
     val maintenance: Boolean,
     val cacheForSeconds: Long,
     val behavior: MobileRuntimeBehavior,
+    /** Absent only on an older server during the bounded rollback window. */
+    val authentication: MobileAuthenticationContract? = null,
 )
 
 internal interface RuntimeConfigGateway {
@@ -71,11 +81,18 @@ internal class RuntimeConfigRepository(
     private val nowEpochSeconds: () -> Long = { System.currentTimeMillis() / 1_000 },
 ) {
     private val installedVersion = SemanticVersion.parse(currentVersion.substringBefore('-'))
+    @Volatile private var resolvedAuthentication: MobileAuthenticationContract? = null
+
+    fun hostedAuthenticationAvailable(): Boolean = resolvedAuthentication?.let {
+        it.mode == "hosted" && it.protocolVersion == 1 &&
+            it.startPath == "/api/v1/auth/hosted/start" && it.legacyNativeAdmission == "compatibility_only"
+    } == true
 
     suspend fun resolve(): RuntimeResolution {
         val now = nowEpochSeconds()
         val remote = gateway.load()
         if (remote is ApiResult.Success && remote.value.isValidSafetyContract()) {
+            resolvedAuthentication = remote.value.authentication
             cache.save(CachedRuntimeConfig(remote.value, now))
             return evaluate(remote.value)
         }
@@ -86,6 +103,7 @@ internal class RuntimeConfigRepository(
                 now - candidate.recordedAtEpochSeconds <= candidate.value.cacheForSeconds
         }
         val cachedDecision = cached?.let { evaluate(it.value) }
+        resolvedAuthentication = cached?.value?.authentication
         return if (cachedDecision is RuntimeResolution.Blocked) cachedDecision
         else RuntimeResolution.Blocked(RuntimeBlockReason.OfflineCaptureOnly)
     }
@@ -108,7 +126,12 @@ private fun MobileRuntimeConfig.isValidSafetyContract(): Boolean =
         behavior.capture == "last_known_good_then_allow_offline" &&
         behavior.upload == "fail_closed" &&
         behavior.billing == "fail_closed" &&
-        behavior.quota == "fail_closed"
+        behavior.quota == "fail_closed" &&
+        (authentication == null || (
+            authentication.mode == "hosted" && authentication.protocolVersion == 1 &&
+                authentication.startPath == "/api/v1/auth/hosted/start" &&
+                authentication.legacyNativeAdmission == "compatibility_only"
+        ))
 
 internal data class SemanticVersion(
     val major: Long,

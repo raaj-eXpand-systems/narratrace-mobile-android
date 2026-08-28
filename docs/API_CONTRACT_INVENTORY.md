@@ -124,6 +124,32 @@ Replays return `200` with `replayed: true` rather than `201`.
 
 ## 2. Authentication flow
 
+### Hosted protocol v1 — authoritative path for capable Android clients
+
+`GET /mobile/runtime-config?platform=android` advertises `authentication.mode=hosted`,
+protocol version `1`, and `/api/v1/auth/hosted/start`. The client creates a 43-character
+S256 PKCE verifier, stores it only in app-private AES-GCM encrypted pending state, and
+submits `platform`, installation UUID, semantic app version, bounded OS version, and
+`codeChallenge` to `POST /auth/hosted/start`.
+
+The returned `authorizeUrl` must be an HTTPS `www.narratrace.io/auth/hosted/{opaque}` URL
+with no query or fragment. It opens in an Android Custom Tab, never a WebView. The only
+accepted return is the verified App Link
+`https://www.narratrace.io/mobile/auth/callback/android?code=…&state=…`. The client
+requires exact retained transaction state and rejects alternate hosts, schemes, paths,
+fragments, duplicate parameters, and extra callback data.
+
+`POST /auth/hosted/exchange` submits the retained transaction, single-use code, PKCE
+verifier, and identical installation metadata. The client fetches `GET /bootstrap` with
+the exchanged access credential and atomically protects the rotating token pair only
+after that authoritative projection validates. Bootstrap provides one server-authored `hosted_web` upgrade destination;
+`returnsToApp` must be `false` for plan upgrades, plan changes, add-ons, and billing
+recovery. Android contains no native purchase logic and constructs no upgrade URL.
+
+The following challenge/native routes remain only for a bounded older-server rollback
+window. They are selected solely when runtime config predates the hosted contract and
+must not receive new onboarding policy.
+
 ### `POST /auth/challenge` — unauthenticated
 No body. Rate limit **10 / 60 s per IP** → `429 RATE_LIMITED`.
 Data: `{ nonce, expiresAt }` — 32 random bytes base64url, ISO expiry at now + 5 min.
