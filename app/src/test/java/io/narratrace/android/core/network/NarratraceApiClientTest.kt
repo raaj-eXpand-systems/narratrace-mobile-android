@@ -126,6 +126,8 @@ class NarratraceApiClientTest {
             "PROMOTION_NOT_AVAILABLE", "DELIVERY_CONTACT_REQUIRED", "VERIFICATION_FAILED",
             "METHOD_NOT_ALLOWED", "RATE_LIMITED", "RESOURCE_NOT_FOUND", "GONE",
             "SERVICE_UNAVAILABLE", "INTERNAL_ERROR",
+            "ARCHIVE_TARGET_REQUIRED", "PRODUCTION_ALLOWANCE_EXHAUSTED", "STORAGE_LIMIT_REACHED",
+            "DUPLICATE_RESOURCE", "STORYTELLER_LIMIT_REACHED",
         )
         for (code in documented) {
             assertEquals(code, ApiErrorCode.fromWire(code).name)

@@ -14,6 +14,7 @@ import kotlinx.serialization.serializer
 @Serializable private data class UploadRequest(
     val action: String, val kind: String, val filename: String, val fileSize: Int,
     val mimeType: String, val fileHash: String, val storagePath: String? = null,
+    val archiveEntitlementId: String? = null,
 )
 @Serializable data class InterviewSummary(
     val id: String, val subjectName: String, val subjectRelation: String? = null,
@@ -76,22 +77,32 @@ import kotlinx.serialization.serializer
 @Serializable private data class MediaTagsInput(val customTags: List<String>)
 @Serializable data class MediaMutation(val kind: String, val media: MediaSummary)
 @Serializable data class MediaTagsMutation(val kind: String, val customTags: List<String>)
-@Serializable private data class VideoUploadRequest(val filename: String, val fileSize: Int, val mimeType: String, val fileHash: String)
+@Serializable private data class VideoUploadRequest(
+    val filename: String, val fileSize: Int, val mimeType: String, val fileHash: String,
+    val archiveEntitlementId: String? = null,
+)
 @Serializable data class VideoAuthorization(val kind: String? = null, val uploadUrl: String, val videoId: String, val maxSeconds: Int? = null)
 @Serializable data class VideoPreservation(val id: String, val videoId: String, val state: String, val preservationAcknowledgement: PreservationAcknowledgement? = null)
 @Serializable data class VideoPreservationResponse(val kind: String, val video: VideoPreservation)
 @Serializable private data class InterviewVideoRequest(val action: String, val mimeType: String? = null, val fileSize: Int? = null, val videoId: String? = null, val content: String? = null)
 
+internal fun mobileUploadRequestBody(item: PendingMedia, action: String, storagePath: String? = null): String =
+    NarratraceJson.encodeToString(UploadRequest(
+        action, if (item.kind == PendingMediaKind.Photo) "photo" else "audio",
+        item.originalFilename, item.byteCount, item.mimeType, item.sha256,
+        storagePath, item.archiveEntitlementId,
+    ))
+
+internal fun mobileVideoRequestBody(item: PendingMedia): String = NarratraceJson.encodeToString(
+    VideoUploadRequest(item.originalFilename, item.byteCount, item.mimeType, item.sha256, item.archiveEntitlementId),
+)
+
 class MediaAndInterviewApi(private val client: NarratraceApiClient) {
     suspend fun authorizeUpload(item: PendingMedia, token: String): ApiResult<UploadAuthorization> = client.post(
-        "/api/v1/uploads", NarratraceJson.encodeToString(UploadRequest(
-            "authorize", if (item.kind == PendingMediaKind.Photo) "photo" else "audio", item.originalFilename, item.byteCount, item.mimeType, item.sha256,
-        )), serializer<UploadAuthorization>(), token,
+        "/api/v1/uploads", mobileUploadRequestBody(item, "authorize"), serializer<UploadAuthorization>(), token,
     )
     suspend fun confirmUpload(item: PendingMedia, auth: UploadAuthorization, token: String): ApiResult<UploadConfirmation> = client.post(
-        "/api/v1/uploads", NarratraceJson.encodeToString(UploadRequest(
-            "confirm", if (item.kind == PendingMediaKind.Photo) "photo" else "audio", item.originalFilename, item.byteCount, item.mimeType, item.sha256, auth.storagePath,
-        )), serializer<UploadConfirmation>(), token,
+        "/api/v1/uploads", mobileUploadRequestBody(item, "confirm", auth.storagePath), serializer<UploadConfirmation>(), token,
     )
     suspend fun transfer(auth: UploadAuthorization, bytes: ByteArray, mime: String) = client.putSignedStorage(auth.uploadUrl, bytes, mime)
     suspend fun interviews(token: String): ApiResult<InterviewList> = client.get("/api/v1/interviews?limit=100", serializer<InterviewList>(), token)
@@ -146,7 +157,7 @@ class MediaAndInterviewApi(private val client: NarratraceApiClient) {
         "/api/v1/interviews/${segment(item.interviewId.orEmpty())}/video-responses",
         NarratraceJson.encodeToString(InterviewVideoRequest("authorize", item.mimeType, item.byteCount)), serializer<VideoAuthorization>(), token,
     ) else client.post(
-        "/api/v1/videos", NarratraceJson.encodeToString(VideoUploadRequest(item.originalFilename, item.byteCount, item.mimeType, item.sha256)), serializer<VideoAuthorization>(), token,
+        "/api/v1/videos", mobileVideoRequestBody(item), serializer<VideoAuthorization>(), token,
     )
     suspend fun transferVideo(url: String, bytes: ByteArray) = client.uploadTus(url, bytes)
     suspend fun transferVideo(url: String, item: PendingMedia, queue: ProtectedMediaQueue) =

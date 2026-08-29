@@ -5,6 +5,7 @@ import io.narratrace.android.core.network.NarratraceJson
 import kotlinx.serialization.serializer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CustomerContractTest {
@@ -46,6 +47,30 @@ class CustomerContractTest {
         assertEquals("B", account.experiment?.cardGateArm)
         assertEquals(true, account.experiment?.experienceFirst)
         assertEquals("available", account.experiment?.resourceState)
+    }
+
+    @Test
+    fun `account contract decodes storyteller allowances and shared pools additively`() {
+        val payload = """
+            {"data":{"status":"subscription_active","plan":"family","productFamily":"family","productTier":"complete","billingCycle":"annual",
+            "currentPeriodEndsAt":"2027-08-11T20:00:00.000Z","hasAccess":true,"canReadArchive":true,
+            "storage":{"usedBytes":1024,"availableBytes":2048,"totalBytes":3072,"usedLabel":"1 KB","availableLabel":"2 KB","totalLabel":"3 KB","usedPercent":33},
+            "productionArchives":[{"id":"11111111-2222-4333-8444-555555555555","entitlementId":"21111111-2222-4333-8444-555555555555","subjectName":"Maya","productFamily":"family","productTier":"complete",
+            "audioSeconds":{"granted":90000,"consumed":3600,"remaining":86400},"videoSeconds":{"granted":18000,"consumed":600,"remaining":17400},"photographs":{"granted":2000,"consumed":42,"remaining":1958}}],
+            "productionPools":{"audioSeconds":{"granted":3600,"consumed":60,"remaining":3540},"videoSeconds":null},
+            "capabilities":{"captureMemories":true,"captureVideo":true,"createLetters":true,"managePeople":true,"familyCircles":true}},
+            "meta":{"apiVersion":"1","requestId":"request-allowance","supportId":"support-allowance"}}
+        """.trimIndent()
+
+        val account = NarratraceJson.decodeFromString(
+            ApiSuccess.serializer(serializer<AccountSummary>()), payload,
+        ).data
+
+        assertEquals("complete", account.productTier)
+        assertTrue(account.capabilities.captureVideo)
+        assertEquals("Maya", account.productionArchives.single().subjectName)
+        assertEquals(1_958L, account.productionArchives.single().photographs?.remaining)
+        assertEquals(3_540L, account.productionPools.audioSeconds?.remaining)
     }
 
     @Test

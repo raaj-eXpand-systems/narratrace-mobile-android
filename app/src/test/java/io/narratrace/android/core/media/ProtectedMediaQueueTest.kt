@@ -94,4 +94,34 @@ class ProtectedMediaQueueTest {
         assertFalse(directory.exists())
         assertTrue(queue.items().isEmpty())
     }
+
+    @Test fun `standalone archive target is encrypted and survives retry restoration`() {
+        val directory = Files.createTempDirectory("media-archive-target").toFile()
+        val queue = ProtectedMediaQueue(directory, cipher)
+        val archiveId = "11111111-2222-4333-8444-555555555555"
+
+        val item = queue.enqueue(
+            "photo".encodeToByteArray(), PendingMediaKind.Photo, "photo.jpg", "image/jpeg",
+            archiveEntitlementId = archiveId,
+        )!!
+
+        assertEquals(archiveId, queue.items().single().archiveEntitlementId)
+        assertFalse(directory.resolve("queue.bin").readText().contains(archiveId))
+        assertNull(queue.enqueue(
+            "photo".encodeToByteArray(), PendingMediaKind.Photo, "photo.jpg", "image/jpeg",
+            archiveEntitlementId = "not-an-archive-id",
+        ))
+        assertEquals(archiveId, item.archiveEntitlementId)
+    }
+
+    @Test fun `member choice binds only unscoped standalone captures`() {
+        val queue = ProtectedMediaQueue(Files.createTempDirectory("media-target-assignment").toFile(), cipher)
+        val archiveId = "11111111-2222-4333-8444-555555555555"
+        queue.enqueue(byteArrayOf(1), PendingMediaKind.Photo, "photo.jpg", "image/jpeg")
+        queue.enqueue(byteArrayOf(2), PendingMediaKind.InterviewAudio, "answer.m4a", "audio/mp4", "interview-1")
+
+        assertTrue(queue.assignArchiveToUnscopedStandalone(archiveId))
+        assertEquals(archiveId, queue.items().first { it.kind == PendingMediaKind.Photo }.archiveEntitlementId)
+        assertNull(queue.items().first { it.kind == PendingMediaKind.InterviewAudio }.archiveEntitlementId)
+    }
 }

@@ -22,9 +22,35 @@ data class StorageSummary(
 @Serializable
 data class AccountCapabilities(
     val captureMemories: Boolean,
+    val captureVideo: Boolean = false,
     val createLetters: Boolean,
     val managePeople: Boolean,
     val familyCircles: Boolean,
+)
+
+@Serializable
+data class ProductionAllowance(
+    val granted: Long,
+    val consumed: Long,
+    val remaining: Long = (granted - consumed).coerceAtLeast(0),
+)
+
+@Serializable
+data class ProductionArchive(
+    val id: String,
+    val entitlementId: String,
+    val subjectName: String,
+    val productFamily: String,
+    val productTier: String,
+    val audioSeconds: ProductionAllowance? = null,
+    val videoSeconds: ProductionAllowance? = null,
+    val photographs: ProductionAllowance? = null,
+)
+
+@Serializable
+data class ProductionPools(
+    val audioSeconds: ProductionAllowance? = null,
+    val videoSeconds: ProductionAllowance? = null,
 )
 
 @Serializable
@@ -46,11 +72,15 @@ data class DeliveryContact(
 data class AccountSummary(
     val status: String,
     val plan: String? = null,
+    val productFamily: String? = null,
+    val productTier: String? = null,
     val billingCycle: String? = null,
     val currentPeriodEndsAt: String? = null,
     val hasAccess: Boolean,
     val canReadArchive: Boolean,
     val storage: StorageSummary,
+    val productionArchives: List<ProductionArchive> = emptyList(),
+    val productionPools: ProductionPools = ProductionPools(),
     val capabilities: AccountCapabilities,
     val experiment: AccountExperiment? = null,
     val deliveryContact: DeliveryContact? = null,

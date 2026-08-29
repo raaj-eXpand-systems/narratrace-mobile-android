@@ -1,6 +1,9 @@
 package io.narratrace.android.core.media
 
 import io.narratrace.android.core.network.NarratraceJson
+import io.narratrace.android.core.network.ApiErrorCode
+import io.narratrace.android.core.network.ApiResult
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -48,6 +51,42 @@ class MediaAndInterviewRepositoryTest {
         assertFalse(videoPartial.video.preservationAcknowledgement.permitsLocalRemoval())
         assertTrue(audioComplete.preservationAcknowledgement.permitsLocalRemoval())
         assertTrue(videoComplete.video.preservationAcknowledgement.permitsLocalRemoval())
+    }
+
+    @Test fun `quota and archive target failures pause automatic retries`() {
+        listOf(
+            ApiErrorCode.ARCHIVE_TARGET_REQUIRED,
+            ApiErrorCode.PRODUCTION_ALLOWANCE_EXHAUSTED,
+            ApiErrorCode.STORAGE_LIMIT_REACHED,
+            ApiErrorCode.DUPLICATE_RESOURCE,
+        ).forEach { code ->
+            val issue = reconciliationIssue(ApiResult.ServerError(
+                code, code.name, "Choose a supported next step.", "archiveEntitlementId", 409, "support-1",
+            ))
+            assertFalse(issue.retryAutomatically)
+            assertEquals("support-1", issue.supportReference)
+        }
+        assertTrue(reconciliationIssue(ApiResult.Offline()).retryAutomatically)
+    }
+
+    @Test fun `standalone media requests carry archive target and old requests stay additive`() {
+        val archiveId = "11111111-2222-4333-8444-555555555555"
+        val targeted = PendingMedia(
+            "id", PendingMediaKind.Photo, "encrypted.bin", "photo.jpg", "image/jpeg", 42,
+            "a".repeat(64), idempotencyKey = "retry", archiveEntitlementId = archiveId,
+        )
+        val legacy = targeted.copy(archiveEntitlementId = null)
+
+        assertTrue(mobileUploadRequestBody(targeted, "authorize").contains("\"archiveEntitlementId\":\"$archiveId\""))
+        assertFalse(mobileUploadRequestBody(legacy, "authorize").contains("archiveEntitlementId"))
+        val audio = targeted.copy(
+            kind = PendingMediaKind.StandaloneAudio,
+            originalFilename = "voice.m4a",
+            mimeType = "audio/mp4",
+        )
+        assertTrue(mobileUploadRequestBody(audio, "confirm", "mobile/account/voice.m4a").contains("\"kind\":\"audio\""))
+        assertTrue(mobileUploadRequestBody(audio, "confirm", "mobile/account/voice.m4a").contains(archiveId))
+        assertTrue(mobileVideoRequestBody(targeted.copy(kind = PendingMediaKind.StandaloneVideo)).contains(archiveId))
     }
 
     private fun decodeResponse(acknowledgement: PreservationAcknowledgement?): InterviewResponse {

@@ -28,6 +28,7 @@ data class PendingMedia(
     val uploadUrl: String? = null,
     val serverId: String? = null,
     val chunked: Boolean = false,
+    val archiveEntitlementId: String? = null,
 )
 
 internal fun protectedUploadAttention(items: List<PendingMedia>): String? {
@@ -43,8 +44,10 @@ class ProtectedMediaQueue(private val directory: File, private val cipher: Crede
     @Synchronized fun enqueue(
         bytes: ByteArray, kind: PendingMediaKind, filename: String, mimeType: String,
         interviewId: String? = null, idempotencyKey: String = UUID.randomUUID().toString(),
+        archiveEntitlementId: String? = null,
     ): PendingMedia? {
-        if (bytes.isEmpty() || bytes.size > MAX_BYTES || filename.contains('/') || filename.contains('\\')) return null
+        if (bytes.isEmpty() || bytes.size > MAX_BYTES || filename.contains('/') || filename.contains('\\') ||
+            (archiveEntitlementId != null && !ARCHIVE_ID.matches(archiveEntitlementId))) return null
         directory.mkdirs()
         val id = UUID.randomUUID().toString()
         val encrypted = cipher.encrypt(bytes) ?: return null
@@ -54,7 +57,7 @@ class ProtectedMediaQueue(private val directory: File, private val cipher: Crede
         val item = PendingMedia(
             id, kind, blobName, filename.take(200), mimeType, bytes.size,
             MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) },
-            interviewId, idempotencyKey,
+            interviewId, idempotencyKey, archiveEntitlementId = archiveEntitlementId,
         )
         if (!save(items() + item)) { blob.delete(); return null }
         return item
@@ -63,8 +66,10 @@ class ProtectedMediaQueue(private val directory: File, private val cipher: Crede
     @Synchronized fun enqueueVideoStream(
         input: InputStream, kind: PendingMediaKind, filename: String, mimeType: String,
         interviewId: String? = null, idempotencyKey: String = UUID.randomUUID().toString(),
+        archiveEntitlementId: String? = null,
     ): PendingMedia? {
-        if (kind !in setOf(PendingMediaKind.StandaloneVideo, PendingMediaKind.InterviewVideo) || filename.contains('/') || filename.contains('\\')) return null
+        if (kind !in setOf(PendingMediaKind.StandaloneVideo, PendingMediaKind.InterviewVideo) || filename.contains('/') || filename.contains('\\') ||
+            (archiveEntitlementId != null && !ARCHIVE_ID.matches(archiveEntitlementId))) return null
         directory.mkdirs()
         val id = UUID.randomUUID().toString()
         val temporary = File(directory, "$id.chunks.tmp").apply { mkdirs() }
@@ -94,7 +99,8 @@ class ProtectedMediaQueue(private val directory: File, private val cipher: Crede
         if (!temporary.renameTo(final)) { temporary.deleteRecursively(); return null }
         val item = PendingMedia(
             id, kind, final.name, filename.take(200), mimeType, total.toInt(),
-            digest.digest().joinToString("") { "%02x".format(it) }, interviewId, idempotencyKey, chunked = true,
+            digest.digest().joinToString("") { "%02x".format(it) }, interviewId, idempotencyKey,
+            chunked = true, archiveEntitlementId = archiveEntitlementId,
         )
         if (!save(items() + item)) { final.deleteRecursively(); return null }
         return item
@@ -138,6 +144,18 @@ class ProtectedMediaQueue(private val directory: File, private val cipher: Crede
     @Synchronized fun setAuthorization(id: String, uploadUrl: String, serverId: String): Boolean =
         save(items().map { if (it.id == id) it.copy(uploadUrl = uploadUrl, serverId = serverId) else it })
 
+    /** Binds offline standalone captures only after the member chooses a storyteller. */
+    @Synchronized fun assignArchiveToUnscopedStandalone(archiveEntitlementId: String): Boolean {
+        if (!ARCHIVE_ID.matches(archiveEntitlementId)) return false
+        val current = items()
+        if (current.none { it.archiveEntitlementId == null && it.kind in STANDALONE_KINDS }) return true
+        return save(current.map { item ->
+            if (item.archiveEntitlementId == null && item.kind in STANDALONE_KINDS) {
+                item.copy(archiveEntitlementId = archiveEntitlementId)
+            } else item
+        })
+    }
+
     @Synchronized fun acknowledgeAndRemove(id: String): Boolean {
         val current = items(); val target = current.firstOrNull { it.id == id } ?: return true
         if (!save(current.filterNot { it.id == id })) return false
@@ -169,5 +187,7 @@ class ProtectedMediaQueue(private val directory: File, private val cipher: Crede
         const val MAX_BYTES = 50 * 1024 * 1024
         const val MAX_VIDEO_BYTES = 2_000_000_000L
         const val CHUNK_BYTES = 4 * 1024 * 1024
+        private val ARCHIVE_ID = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", RegexOption.IGNORE_CASE)
+        private val STANDALONE_KINDS = setOf(PendingMediaKind.StandaloneAudio, PendingMediaKind.Photo, PendingMediaKind.StandaloneVideo)
     }
 }

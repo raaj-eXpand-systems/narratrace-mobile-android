@@ -3,6 +3,7 @@ package io.narratrace.android.core.media
 import io.narratrace.android.core.auth.SessionManager
 import io.narratrace.android.core.auth.TokenLease
 import io.narratrace.android.core.network.ApiResult
+import io.narratrace.android.core.network.ApiErrorCode
 
 sealed interface FeatureResult<out T> {
     data class Success<T>(val value: T) : FeatureResult<T>
@@ -14,44 +15,83 @@ sealed interface FeatureResult<out T> {
 internal fun PreservationAcknowledgement?.permitsLocalRemoval(): Boolean =
     this?.originalDurablyStored == true && integrityVerified
 
+data class MediaReconciliationIssue(
+    val message: String,
+    val supportReference: String,
+    val retryAutomatically: Boolean,
+)
+
+internal fun reconciliationIssue(failure: ApiResult.Failure): MediaReconciliationIssue {
+    val code = (failure as? ApiResult.ServerError)?.code
+    val needsMemberAction = code in setOf(
+        ApiErrorCode.ARCHIVE_TARGET_REQUIRED,
+        ApiErrorCode.PRODUCTION_ALLOWANCE_EXHAUSTED,
+        ApiErrorCode.STORAGE_LIMIT_REACHED,
+        ApiErrorCode.DUPLICATE_RESOURCE,
+    ) || failure is ApiResult.Forbidden || failure is ApiResult.LegalAcceptanceRequired
+    return MediaReconciliationIssue(failure.message, failure.supportReference, !needsMemberAction)
+}
+
 class MediaAndInterviewRepository(
     private val api: MediaAndInterviewApi,
     private val sessions: SessionManager,
     val queue: ProtectedMediaQueue,
 ) {
+    @Volatile private var latestIssue: MediaReconciliationIssue? = null
+
+    fun latestReconciliationIssue(): MediaReconciliationIssue? = latestIssue
+
+    private fun rememberFailure(result: ApiResult<*>): Boolean {
+        val failure = result as? ApiResult.Failure ?: return false
+        val issue = reconciliationIssue(failure)
+        if (latestIssue == null || latestIssue?.retryAutomatically == true && !issue.retryAutomatically) {
+            latestIssue = issue
+        }
+        return true
+    }
+
     suspend fun reconcile(): Int {
+        latestIssue = null
         val token = (sessions.accessToken() as? TokenLease.Valid)?.accessToken ?: return queue.items().size
         queue.items().forEach { item ->
             queue.markAttempt(item.id)
             when (item.kind) {
                 PendingMediaKind.StandaloneAudio, PendingMediaKind.Photo -> {
                     val bytes = queue.read(item) ?: return@forEach
-                    val auth = api.authorizeUpload(item, token) as? ApiResult.Success ?: return@forEach
+                    val authResult = api.authorizeUpload(item, token)
+                    val auth = authResult as? ApiResult.Success ?: run { rememberFailure(authResult); return@forEach }
                     if (!api.transfer(auth.value, bytes, item.mimeType)) return@forEach
-                    val confirmation = api.confirmUpload(item, auth.value, token) as? ApiResult.Success ?: return@forEach
+                    val confirmationResult = api.confirmUpload(item, auth.value, token)
+                    val confirmation = confirmationResult as? ApiResult.Success ?: run { rememberFailure(confirmationResult); return@forEach }
                     val ack = confirmation.value.preservationAcknowledgement
                     if (ack.permitsLocalRemoval()) queue.acknowledgeAndRemove(item.id)
                 }
                 PendingMediaKind.InterviewAudio -> {
                     val bytes = queue.read(item) ?: return@forEach
                     val id = item.interviewId ?: return@forEach
-                    val response = api.respondAudio(id, bytes, item.mimeType, item.sha256, item.idempotencyKey, token) as? ApiResult.Success
-                        ?: return@forEach
+                    val responseResult = api.respondAudio(id, bytes, item.mimeType, item.sha256, item.idempotencyKey, token)
+                    val response = responseResult as? ApiResult.Success ?: run { rememberFailure(responseResult); return@forEach }
                     if (response.value.preservationAcknowledgement.permitsLocalRemoval()) queue.acknowledgeAndRemove(item.id)
                 }
                 PendingMediaKind.StandaloneVideo, PendingMediaKind.InterviewVideo -> {
                     var current = item
                     if (current.uploadUrl == null || current.serverId == null) {
-                        val authorization = api.authorizeVideo(current, token) as? ApiResult.Success ?: return@forEach
+                        val authorizationResult = api.authorizeVideo(current, token)
+                        val authorization = authorizationResult as? ApiResult.Success
+                            ?: run { rememberFailure(authorizationResult); return@forEach }
                         if (!queue.setAuthorization(current.id, authorization.value.uploadUrl, authorization.value.videoId)) return@forEach
                         current = queue.items().firstOrNull { it.id == current.id } ?: return@forEach
                     }
                     if (!api.transferVideo(current.uploadUrl!!, current, queue)) return@forEach
                     if (current.kind == PendingMediaKind.InterviewVideo) {
-                        val response = api.confirmInterviewVideo(current, token) as? ApiResult.Success ?: return@forEach
+                        val responseResult = api.confirmInterviewVideo(current, token)
+                        val response = responseResult as? ApiResult.Success
+                            ?: run { rememberFailure(responseResult); return@forEach }
                         if (response.value.preservationAcknowledgement.permitsLocalRemoval()) queue.acknowledgeAndRemove(current.id)
                     } else {
-                        val preserved = api.videoPreservation(current.serverId!!, token) as? ApiResult.Success ?: return@forEach
+                        val preservedResult = api.videoPreservation(current.serverId!!, token)
+                        val preserved = preservedResult as? ApiResult.Success
+                            ?: run { rememberFailure(preservedResult); return@forEach }
                         val ack = preserved.value.video.preservationAcknowledgement
                         if (ack.permitsLocalRemoval()) queue.acknowledgeAndRemove(current.id)
                     }

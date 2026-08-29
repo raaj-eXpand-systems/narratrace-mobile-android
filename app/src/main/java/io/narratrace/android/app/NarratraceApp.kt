@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -105,6 +106,9 @@ import io.narratrace.android.core.customer.CustomerPersonResult
 import io.narratrace.android.core.customer.RemotePerson
 import io.narratrace.android.core.customer.RemotePersonDetail
 import io.narratrace.android.core.customer.AccountResult
+import io.narratrace.android.core.customer.AccountSummary
+import io.narratrace.android.core.customer.ProductionArchive
+import io.narratrace.android.core.customer.ProductionAllowance
 import io.narratrace.android.core.customer.WrittenMemoryResult
 import io.narratrace.android.core.customer.CustomerMemoryResult
 import io.narratrace.android.core.media.FeatureResult
@@ -156,6 +160,96 @@ private fun InputStream.readBounded(maximum: Int): ByteArray? {
         output.write(buffer, 0, count)
     }
     return output.toByteArray()
+}
+
+private fun ProductionAllowance?.combinedRemaining(pool: ProductionAllowance?): Long? =
+    if (this == null && pool == null) null else (this?.remaining ?: 0) + (pool?.remaining ?: 0)
+
+internal data class ProductionCaptureAvailability(
+    val selectedArchive: ProductionArchive?,
+    val targetRequired: Boolean,
+    val audioEnabled: Boolean,
+    val photoEnabled: Boolean,
+    val videoEnabled: Boolean,
+)
+
+internal fun productionCaptureAvailability(account: AccountSummary, selectedArchiveId: String?): ProductionCaptureAvailability {
+    val selectedArchive = account.productionArchives.firstOrNull { it.id == selectedArchiveId }
+    val targetRequired = account.productionArchives.size > 1 && selectedArchive == null
+    val photoRemaining = selectedArchive?.photographs?.remaining
+    val audioRemaining = selectedArchive?.audioSeconds.combinedRemaining(account.productionPools.audioSeconds)
+    val videoRemaining = selectedArchive?.videoSeconds.combinedRemaining(account.productionPools.videoSeconds)
+    return ProductionCaptureAvailability(
+        selectedArchive = selectedArchive,
+        targetRequired = targetRequired,
+        photoEnabled = account.hasAccess && !targetRequired && photoRemaining != 0L,
+        audioEnabled = account.hasAccess && !targetRequired && audioRemaining != 0L,
+        videoEnabled = account.hasAccess && account.capabilities.captureVideo && !targetRequired && videoRemaining != 0L,
+    )
+}
+
+private fun Long.durationAllowanceLabel(): String {
+    val hours = this / 3_600
+    val minutes = (this % 3_600) / 60
+    return when {
+        hours > 0 && minutes > 0 -> "${hours}h ${minutes}m"
+        hours > 0 -> "${hours}h"
+        this > 0 && minutes == 0L -> "${this}s"
+        else -> "${minutes}m"
+    }
+}
+
+private fun uploadResultMessage(container: AppContainer, mediaLabel: String, remaining: Int): String {
+    val issue = container.mediaRepository.latestReconciliationIssue()
+    if (issue != null) return buildString {
+        append(issue.message)
+        if (issue.supportReference.isNotBlank()) append(" Support reference: ${issue.supportReference}")
+    }
+    return if (remaining == 0) "$mediaLabel preserved securely."
+    else "$mediaLabel protected on this device and waiting for secure transfer."
+}
+
+@Composable
+private fun ProductionCaptureTargetCard(
+    account: AccountSummary,
+    selectedArchive: ProductionArchive?,
+    choose: (() -> Unit)?,
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Storyteller allowance", style = MaterialTheme.typography.titleMedium)
+            if (selectedArchive == null) {
+                Text(
+                    "Choose who these standalone audio recordings, photos, and videos are about before adding media.",
+                    color = MaterialTheme.colorScheme.error,
+                )
+            } else {
+                Text("Adding media for ${selectedArchive.subjectName}")
+                selectedArchive.audioSeconds.combinedRemaining(account.productionPools.audioSeconds)?.let { remaining ->
+                    Text("Voice: ${remaining.durationAllowanceLabel()} remaining", color = if (remaining == 0L) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                selectedArchive.photographs?.let { allowance ->
+                    Text(
+                        "Photos: ${"%,d".format(allowance.remaining)} of ${"%,d".format(allowance.granted)} remaining",
+                        color = if (allowance.remaining == 0L) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (!account.capabilities.captureVideo) {
+                    Text("Video is not included in this plan.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else selectedArchive.videoSeconds.combinedRemaining(account.productionPools.videoSeconds)?.let { remaining ->
+                    Text("Video: ${remaining.durationAllowanceLabel()} remaining", color = if (remaining == 0L) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if ((account.productionPools.audioSeconds?.remaining ?: 0) > 0 || (account.productionPools.videoSeconds?.remaining ?: 0) > 0) {
+                    Text("Remaining voice and video totals include shared add-on capacity.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            choose?.let { action ->
+                Button(onClick = action, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    Text(if (selectedArchive == null) "Choose storyteller" else "Change storyteller")
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -954,6 +1048,28 @@ private fun CustomerMoreScreen(
                             Text("Your guided interview is complete. Additional capture choices are not available in this app.", style = MaterialTheme.typography.bodySmall)
                         }
                         Text("${current.value.storage.usedLabel} used · ${current.value.storage.availableLabel} available", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (current.value.productionArchives.isNotEmpty()) {
+                            Text("Allowance by storyteller", style = MaterialTheme.typography.titleSmall)
+                            current.value.productionArchives.forEach { archive ->
+                                Text(archive.subjectName, style = MaterialTheme.typography.labelLarge)
+                                archive.audioSeconds?.let { Text("Voice: ${it.remaining.durationAllowanceLabel()} remaining", style = MaterialTheme.typography.bodySmall) }
+                                archive.photographs?.let { Text("Photos: ${"%,d".format(it.remaining)} remaining", style = MaterialTheme.typography.bodySmall) }
+                                archive.videoSeconds?.let { allowance ->
+                                    Text(
+                                        if (current.value.capabilities.captureVideo) "Video: ${allowance.remaining.durationAllowanceLabel()} remaining"
+                                        else "Video: not included",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                            val sharedAudio = current.value.productionPools.audioSeconds?.remaining ?: 0
+                            val sharedVideo = current.value.productionPools.videoSeconds?.remaining ?: 0
+                            if (sharedAudio > 0 || sharedVideo > 0) {
+                                Text("Shared add-on capacity", style = MaterialTheme.typography.labelLarge)
+                                if (sharedAudio > 0) Text("Voice: ${sharedAudio.durationAllowanceLabel()}", style = MaterialTheme.typography.bodySmall)
+                                if (sharedVideo > 0) Text("Video: ${sharedVideo.durationAllowanceLabel()}", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
                         if (current.value.deliveryContact?.status == "verified") {
                             Text("Delivery contact verified: ${current.value.deliveryContact.email}", style = MaterialTheme.typography.bodySmall)
                         } else {
@@ -1392,6 +1508,8 @@ private fun CustomerCaptureScreen(
     var interviews by remember { mutableStateOf(false) }
     var photoMessage by remember { mutableStateOf<String?>(null) }
     var letters by remember { mutableStateOf(false) }
+    var selectedArchiveId by remember { mutableStateOf<String?>(null) }
+    var choosingArchive by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val captureScope = rememberCoroutineScope()
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -1403,21 +1521,58 @@ private fun CustomerCaptureScreen(
             }
             val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBounded(io.narratrace.android.core.media.ProtectedMediaQueue.MAX_BYTES) } }.getOrNull()
             val extension = when (mime) { "image/png" -> "png"; "image/webp" -> "webp"; "image/heic" -> "heic"; "image/heif" -> "heif"; else -> "jpg" }
-            val queued = bytes?.let { container.mediaRepository.queue.enqueue(it, PendingMediaKind.Photo, "narratrace-${UUID.randomUUID()}.$extension", mime) }
+            val queued = bytes?.let { container.mediaRepository.queue.enqueue(
+                it, PendingMediaKind.Photo, "narratrace-${UUID.randomUUID()}.$extension", mime,
+                archiveEntitlementId = selectedArchiveId,
+            ) }
             if (queued == null) photoMessage = "The photo could not be encrypted safely. The original was not uploaded."
-            else photoMessage = if (container.mediaRepository.reconcile() == 0) "Photo preserved securely." else "Photo protected on this device and waiting for secure transfer."
+            else photoMessage = uploadResultMessage(container, "Photo", container.mediaRepository.reconcile())
         }
     }
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) captureScope.launch {
             val mime = context.contentResolver.getType(uri)?.lowercase().orEmpty()
             if (mime !in setOf("video/mp4", "video/quicktime")) { photoMessage = "Choose an MP4 or QuickTime video."; return@launch }
-            val queued = runCatching { context.contentResolver.openInputStream(uri)?.use { container.mediaRepository.queue.enqueueVideoStream(it, PendingMediaKind.StandaloneVideo, "narratrace-${UUID.randomUUID()}.${if (mime == "video/quicktime") "mov" else "mp4"}", mime) } }.getOrNull()
+            val queued = runCatching { context.contentResolver.openInputStream(uri)?.use { container.mediaRepository.queue.enqueueVideoStream(
+                it, PendingMediaKind.StandaloneVideo,
+                "narratrace-${UUID.randomUUID()}.${if (mime == "video/quicktime") "mov" else "mp4"}", mime,
+                archiveEntitlementId = selectedArchiveId,
+            ) } }.getOrNull()
             if (queued == null) photoMessage = "This video could not be encrypted safely or exceeds the 2 GB limit."
-            else photoMessage = if (container.mediaRepository.reconcile() == 0) "Video preserved securely." else "Video protected on this device and waiting for secure transfer."
+            else photoMessage = uploadResultMessage(container, "Video", container.mediaRepository.reconcile())
         }
     }
     LaunchedEffect(refreshKey) { accountResult = container.customerRepository.loadAccount() }
+    val productionArchives = (accountResult as? AccountResult.Success)?.value?.productionArchives.orEmpty()
+    LaunchedEffect(productionArchives.map(ProductionArchive::id)) {
+        selectedArchiveId = when {
+            productionArchives.size == 1 -> productionArchives.single().id
+            productionArchives.none { it.id == selectedArchiveId } -> null
+            else -> selectedArchiveId
+        }
+        selectedArchiveId?.let(container.mediaRepository.queue::assignArchiveToUnscopedStandalone)
+    }
+
+    if (choosingArchive) AlertDialog(
+        onDismissRequest = { choosingArchive = false },
+        title = { Text("Choose a storyteller") },
+        text = {
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
+                items(productionArchives, key = ProductionArchive::id) { archive ->
+                    TextButton(
+                        onClick = {
+                            selectedArchiveId = archive.id
+                            container.mediaRepository.queue.assignArchiveToUnscopedStandalone(archive.id)
+                            photoMessage = "Waiting standalone captures will be preserved for ${archive.subjectName}."
+                            choosingArchive = false
+                        },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    ) { Text(archive.subjectName) }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { choosingArchive = false }) { Text("Cancel") } },
+    )
 
     if (writing) {
         WrittenMemoryComposer(
@@ -1429,7 +1584,7 @@ private fun CustomerCaptureScreen(
         return
     }
     if (recordingAudio) {
-        AudioCaptureScreen(container, modifier, null, null) { recordingAudio = false }
+        AudioCaptureScreen(container, modifier, null, null, archiveEntitlementId = selectedArchiveId) { recordingAudio = false }
         return
     }
     if (interviews) {
@@ -1450,6 +1605,7 @@ private fun CustomerCaptureScreen(
             val experienceFirstAccess = current.value.experiment?.experienceFirst == true &&
                 current.value.experiment?.resourceState != "completed"
             val interviewAccess = fullCaptureAccess || experienceFirstAccess
+            val captureAvailability = productionCaptureAvailability(current.value, selectedArchiveId)
             LazyColumn(
                 modifier = modifier.fillMaxSize(),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp),
@@ -1460,6 +1616,13 @@ private fun CustomerCaptureScreen(
                     Text(attention, Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, color = MaterialTheme.colorScheme.error)
                 } }
                 item { Text("Nothing is shared automatically.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                if (current.value.productionArchives.isNotEmpty()) item {
+                    ProductionCaptureTargetCard(
+                        account = current.value,
+                        selectedArchive = captureAvailability.selectedArchive,
+                        choose = if (current.value.productionArchives.size > 1) { { choosingArchive = true } } else null,
+                    )
+                }
                 if (experienceFirstAccess) item {
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1488,21 +1651,32 @@ private fun CustomerCaptureScreen(
                     Text("Send now or preserve it privately for a future delivery time.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } } }
                 item {
-                    Card(Modifier.fillMaxWidth().clickable(enabled = fullCaptureAccess) { onInteraction(); recordingAudio = true }) {
+                    Card(Modifier.fillMaxWidth().clickable(enabled = captureAvailability.audioEnabled) { onInteraction(); recordingAudio = true }) {
                         Column(Modifier.padding(16.dp)) {
                             Text("Record audio", style = MaterialTheme.typography.titleMedium)
                             Text("Encrypted on this device until preservation is verified.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
-                item { Card(Modifier.fillMaxWidth().clickable(enabled = fullCaptureAccess) { photoPicker.launch("image/*") }) { Column(Modifier.padding(16.dp)) {
+                item { Card(Modifier.fillMaxWidth().clickable(enabled = captureAvailability.photoEnabled) { photoPicker.launch("image/*") }) { Column(Modifier.padding(16.dp)) {
                     Text("Add a photo", style = MaterialTheme.typography.titleMedium)
                     Text("The selected photo is encrypted before retry staging.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    photoMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    photoMessage?.let {
+                        Text(
+                            it,
+                            Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (container.mediaRepository.latestReconciliationIssue() != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 } } }
-                item { Card(Modifier.fillMaxWidth().clickable(enabled = fullCaptureAccess) { videoPicker.launch("video/*") }) { Column(Modifier.padding(16.dp)) {
+                item { Card(Modifier.fillMaxWidth().clickable(enabled = captureAvailability.videoEnabled) { videoPicker.launch("video/*") }) { Column(Modifier.padding(16.dp)) {
                     Text("Record video", style = MaterialTheme.typography.titleMedium)
-                    Text("Choose or record a clip for encrypted, resumable preservation.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        if (!current.value.capabilities.captureVideo) "Video is not included in this plan."
+                        else "Choose or record a clip for encrypted, resumable preservation.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 } } }
                 item {
                     Card(Modifier.fillMaxWidth().clickable(enabled = interviewAccess) { onInteraction(); interviews = true }) { Column(Modifier.padding(16.dp)) {
@@ -1622,6 +1796,7 @@ private fun AudioCaptureScreen(
     modifier: Modifier,
     interviewId: String?,
     maxSeconds: Int?,
+    archiveEntitlementId: String? = null,
     assisted: Boolean = false,
     question: String? = null,
     allowUpload: Boolean = true,
@@ -1672,11 +1847,12 @@ private fun AudioCaptureScreen(
                         val queued = container.mediaRepository.queue.enqueue(
                             bytes, if (interviewId == null) PendingMediaKind.StandaloneAudio else PendingMediaKind.InterviewAudio,
                             "narratrace-${UUID.randomUUID()}.m4a", "audio/mp4", interviewId,
+                            archiveEntitlementId = if (interviewId == null) archiveEntitlementId else null,
                         )
                         if (queued == null) { message = "The recording could not be encrypted safely."; busy = false }
                         else scope.launch {
                             val remaining = if (allowUpload) container.mediaRepository.reconcile() else container.mediaRepository.queue.items().size
-                            message = if (allowUpload && remaining == 0) "Saved securely. The local recording was removed after verified preservation."
+                            message = if (allowUpload) uploadResultMessage(container, "Audio", remaining)
                             else "Protected on this device. Narratrace will retry when secure transfer is available."
                             busy = false
                         }
@@ -1686,14 +1862,22 @@ private fun AudioCaptureScreen(
         ) { Text(if (recording) "Stop and preserve" else "Start recording") }
         if (recording) Text("%02d:%02d remaining".format(remainingSeconds / 60, remainingSeconds % 60), style = MaterialTheme.typography.bodySmall)
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-        message?.let { Text(it, color = if (it.startsWith("The recording could not") || it.startsWith("No recording")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
+        message?.let { Text(
+            it,
+            Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+            color = if (container.mediaRepository.latestReconciliationIssue() != null || it.startsWith("The recording could not") || it.startsWith("No recording")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        ) }
         val waiting = container.mediaRepository.queue.items().size
         if (waiting > 0) {
             Text("$waiting protected upload${if (waiting == 1) "" else "s"} waiting.", style = MaterialTheme.typography.bodySmall)
             protectedUploadAttention(container.mediaRepository.queue.items())?.let {
                 Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, color = MaterialTheme.colorScheme.error)
             }
-            if (allowUpload) TextButton(onClick = { busy = true; scope.launch { container.mediaRepository.reconcile(); busy = false } }, enabled = !busy) { Text("Retry protected uploads") }
+            if (allowUpload) TextButton(onClick = { busy = true; scope.launch {
+                val remaining = container.mediaRepository.reconcile()
+                message = uploadResultMessage(container, "Upload", remaining)
+                busy = false
+            } }, enabled = !busy) { Text("Retry protected uploads") }
         }
     }
 }
@@ -1712,6 +1896,7 @@ private fun GuidedInterviewsScreen(container: AppContainer, modifier: Modifier, 
     var relation by remember { mutableStateOf("") }
     var creating by remember { mutableStateOf(false) }
     var accepting by remember { mutableStateOf(false) }
+    var creationMessage by remember { mutableStateOf<String?>(null) }
     var key by remember { mutableStateOf(UUID.randomUUID().toString()) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(refresh) { result = container.mediaRepository.interviews(); legal = container.mediaRepository.legal() }
@@ -1740,12 +1925,20 @@ private fun GuidedInterviewsScreen(container: AppContainer, modifier: Modifier, 
         }
         item { OutlinedTextField(name, { name = it.take(120); key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth(), label = { Text("Who is this story about?") }, singleLine = true) }
         item { OutlinedTextField(relation, { relation = it.take(120); key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth(), label = { Text("Relationship (optional)") }, singleLine = true) }
-        item { Button(onClick = { creating = true; scope.launch {
+        item { Button(onClick = { creating = true; creationMessage = null; scope.launch {
             when (val made = container.mediaRepository.createInterview(name, relation, null, key)) {
                 is FeatureResult.Success -> { name = ""; relation = ""; key = UUID.randomUUID().toString(); selected = made.value.interview }
-                else -> Unit
+                is FeatureResult.Unavailable -> creationMessage = made.message
+                FeatureResult.AuthenticationRequired -> creationMessage = "Sign in again before starting an interview."
             }; creating = false
         } }, modifier = Modifier.fillMaxWidth(), enabled = !creating && name.trim().isNotEmpty() && (legal as? FeatureResult.Success)?.value?.let { it.aiNoticeAcknowledged && it.specialCategoryConsent } == true) { Text("Start interview") } }
+        creationMessage?.let { message -> item {
+            Text(
+                message,
+                Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
+                color = MaterialTheme.colorScheme.error,
+            )
+        } }
         item { Text("Your interviews", style = MaterialTheme.typography.titleLarge) }
         when (val loaded = result) {
             null -> item { LoadingMessage("Refreshing your interviews…") }

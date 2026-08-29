@@ -98,6 +98,11 @@ enum class ApiErrorCode {
     GONE,
     SERVICE_UNAVAILABLE,
     INTERNAL_ERROR,
+    ARCHIVE_TARGET_REQUIRED,
+    PRODUCTION_ALLOWANCE_EXHAUSTED,
+    STORAGE_LIMIT_REACHED,
+    DUPLICATE_RESOURCE,
+    STORYTELLER_LIMIT_REACHED,
 
     /** Any code this build does not know about. Never thrown, always handled. */
     UNRECOGNISED,

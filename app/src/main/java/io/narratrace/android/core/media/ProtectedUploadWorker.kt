@@ -23,7 +23,8 @@ class ProtectedUploadWorker(context: Context, params: WorkerParameters) : Corout
         val lifecycle = container.accountLifecycleApi.signal(session.accessToken)
         if (lifecycle !is ApiResult.Success || !lifecycle.value.allowsOrdinaryAccess()) return Result.success()
         val remaining = container.mediaRepository.reconcile()
-        return if (remaining == 0) Result.success() else Result.retry()
+        val issue = container.mediaRepository.latestReconciliationIssue()
+        return if (remaining == 0 || issue?.retryAutomatically == false) Result.success() else Result.retry()
     }
 
     companion object {
