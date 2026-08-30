@@ -47,6 +47,49 @@ class CustomerContractTest {
         assertEquals("B", account.experiment?.cardGateArm)
         assertEquals(true, account.experiment?.experienceFirst)
         assertEquals("available", account.experiment?.resourceState)
+        assertTrue(account.hasGuidedInterviewOnlyAccess())
+    }
+
+    @Test
+    fun `saved guided choice never narrows a paying customer to interview only access`() {
+        val payload = """
+            {"data":{"status":"subscription_active","plan":"family","billingCycle":"annual",
+            "currentPeriodEndsAt":"2027-08-11T20:00:00.000Z","hasAccess":true,"canReadArchive":true,
+            "storage":{"usedBytes":0,"availableBytes":53687091200,"totalBytes":53687091200,"usedLabel":"0 B","availableLabel":"50 GB","totalLabel":"50 GB","usedPercent":0},
+            "capabilities":{"captureMemories":true,"createLetters":true,"managePeople":true,"familyCircles":true},
+            "experiment":{"cardGateArm":"B","experienceFirst":true,"resourceState":"available"}},
+            "meta":{"apiVersion":"1","requestId":"request-paid","supportId":"request-paid"}}
+        """.trimIndent()
+
+        val account = NarratraceJson.decodeFromString(
+            ApiSuccess.serializer(serializer<AccountSummary>()), payload,
+        ).data
+
+        assertTrue(account.hasAccess)
+        assertEquals("B", account.experiment?.cardGateArm)
+        assertFalse(account.hasGuidedInterviewOnlyAccess())
+    }
+
+    @Test
+    fun `plan first and completed guided journeys do not grant interview only access`() {
+        val base = AccountSummary(
+            status = "invited",
+            hasAccess = false,
+            canReadArchive = false,
+            storage = StorageSummary(0, 0, 0, "0 B", "0 B", "0 B", 0),
+            capabilities = AccountCapabilities(
+                captureMemories = false,
+                createLetters = false,
+                managePeople = false,
+                familyCircles = false,
+            ),
+            experiment = AccountExperiment("A", experienceFirst = false),
+        )
+
+        assertFalse(base.hasGuidedInterviewOnlyAccess())
+        assertFalse(base.copy(
+            experiment = AccountExperiment("B", experienceFirst = true, resourceState = "completed"),
+        ).hasGuidedInterviewOnlyAccess())
     }
 
     @Test

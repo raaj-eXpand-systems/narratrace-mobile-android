@@ -234,11 +234,18 @@ flagged**. Two exceptions exist and are called out inline.
 90% critical). Note the server already supplies pre-formatted `*Label` strings — use them
 rather than formatting bytes on-device, so iOS and Android read identically.
 
-`/account.capabilities.captureMemories` can include the Experiment B exception for one
-guided interview before trial activation. It does not grant photo, standalone audio/video,
-or written-memory capture while `hasAccess` is false. Native clients therefore enable only
-the guided interview while `experiment.experienceFirst` is active; all other capture remains
-governed by `hasAccess`.
+`/account.experiment` retains its historical field name for backward-compatible clients,
+but it is no longer a random product assignment. Arm `B` means the verified account owns a
+saved `guided_interview` onboarding choice; Arm `A` means `plan_purchase`. The server may
+reconcile an unused historical assignment to that saved choice. Browser cookies and URLs
+are attribution hints only and are never routing authority after sign-in.
+
+The guided choice can grant one interview before plan activation. It does not grant photo,
+standalone audio/video, or written-memory capture while `hasAccess` is false. Native clients
+therefore enable only the guided interview when `experienceFirst` is active and the resource
+is not complete. A paying account (`hasAccess == true`) always uses its full entitlements,
+even if its original guided choice remains in the response. Archive-only accounts keep
+read access through `canReadArchive` without gaining capture access.
 
 ### Mobile platform
 

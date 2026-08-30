@@ -86,6 +86,17 @@ data class AccountSummary(
     val deliveryContact: DeliveryContact? = null,
 )
 
+/**
+ * The server keeps the historical `experiment` field name for API compatibility,
+ * but `experienceFirst` now reflects the customer's saved onboarding choice.
+ * A paid account always has full capture access, so a retained onboarding choice
+ * must never make the client present that account as guided-interview-only.
+ */
+fun AccountSummary.hasGuidedInterviewOnlyAccess(): Boolean {
+    val selectedJourney = experiment ?: return false
+    return !hasAccess && selectedJourney.experienceFirst && selectedJourney.resourceState != "completed"
+}
+
 @Serializable
 data class RemoteMemory(
     val id: String,

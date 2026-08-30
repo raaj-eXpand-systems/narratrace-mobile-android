@@ -111,6 +111,7 @@ import io.narratrace.android.core.customer.ProductionArchive
 import io.narratrace.android.core.customer.ProductionAllowance
 import io.narratrace.android.core.customer.WrittenMemoryResult
 import io.narratrace.android.core.customer.CustomerMemoryResult
+import io.narratrace.android.core.customer.hasGuidedInterviewOnlyAccess
 import io.narratrace.android.core.media.FeatureResult
 import io.narratrace.android.core.media.InterviewDetail
 import io.narratrace.android.core.media.InterviewSummary
@@ -583,8 +584,8 @@ private fun SignInScreen(container: AppContainer, returning: Boolean) {
 
 /**
  * Protocol-v1 sign-in is intentionally only a launcher and return-status surface.
- * Invitation, provider authorization, verification, MFA, legal acceptance, arm
- * selection, and onboarding stay in the hosted Narratrace flow.
+ * Invitation, provider authorization, verification, MFA, legal acceptance,
+ * onboarding-journey selection, and routing stay in the hosted Narratrace flow.
  */
 @Composable
 private fun HostedSignInScreen(container: AppContainer, returning: Boolean) {
@@ -1042,7 +1043,7 @@ private fun CustomerMoreScreen(
                             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                         )
                         current.value.billingCycle?.let { Text("Billing: ${it.replace('_', ' ').replaceFirstChar(Char::uppercase)}", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        if (current.value.experiment?.experienceFirst == true && current.value.experiment?.resourceState != "completed") {
+                        if (current.value.hasGuidedInterviewOnlyAccess()) {
                             Text("Your account includes one guided interview. Other capture choices are not available in this app.", style = MaterialTheme.typography.bodySmall)
                         } else if (current.value.experiment?.resourceState == "completed" && !current.value.hasAccess) {
                             Text("Your guided interview is complete. Additional capture choices are not available in this app.", style = MaterialTheme.typography.bodySmall)
@@ -1602,8 +1603,7 @@ private fun CustomerCaptureScreen(
         )
         is AccountResult.Success -> {
             val fullCaptureAccess = current.value.hasAccess
-            val experienceFirstAccess = current.value.experiment?.experienceFirst == true &&
-                current.value.experiment?.resourceState != "completed"
+            val experienceFirstAccess = current.value.hasGuidedInterviewOnlyAccess()
             val interviewAccess = fullCaptureAccess || experienceFirstAccess
             val captureAvailability = productionCaptureAvailability(current.value, selectedArchiveId)
             LazyColumn(
