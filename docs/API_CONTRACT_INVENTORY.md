@@ -150,6 +150,17 @@ the hosted server workflow, not duplicated in Android. The client must not infer
 eligible target from the current plan or offer a native checkout fallback when the hosted
 workflow declines a change.
 
+Production checkout validates the requested immutable SKU against its own Stripe lookup
+key. It does not require unrelated catalog entries to be available before that purchase can
+continue. Web checkout still owns same-plan denial, upgrade eligibility, and entitlement
+reconciliation. This is not an Android catalog contract: Android sends no SKU or price ID
+and must not cache or reconstruct either one.
+
+The web checkout's self-keepsake choice is explicitly worded as an archive for the buyer,
+with the plan and sign-in remaining in that buyer's account. Android does not render the
+keepsake-card purchase form or infer recipient access from artifact-delivery records, so no
+native copy or delivery-payload change is introduced by that clarification.
+
 The customer-web root-route recovery for a stale `mfa_required` browser session is also
 web-only. It revokes browser trust and clears the web session before returning to sign-in;
 it does not change the hosted mobile protocol or installation-bound token contract.
@@ -193,6 +204,13 @@ only); missing or invalid `mfaCode`; RPC `admit_mobile_identity` returns ≠ `'a
 
 **MFA follows the customer account setting on native admission.** When enabled, TOTP is consumed via `consume_mfa_totp_step`;
 recovery codes accepted and atomically removed.
+
+Narratrace role holders are stricter: authenticator enrollment is mandatory and every new
+hosted or compatibility admission requires a fresh authenticator or recovery-code result.
+A trusted-browser cookie is never sufficient for a role-holder sign-in. The hosted page
+enforces this before exchanging the Android transaction; compatibility admission enforces
+the same rule through `mfa_enrollment_required` and `mfa_required`. Ordinary unenrolled
+customers remain quiet and are not prompted for an email OTP or optional authenticator.
 
 Apple hashes the nonce (`sha256` hex) before assertion verification; Google passes it raw.
 
@@ -305,6 +323,14 @@ Note `title` is the literal constant `'Narratrace'` — privacy-safe by design (
 
 **`preservationAcknowledgement{originalDurablyStored, integrityVerified}` is the deletion
 gate** required by plan §6. Android deletes a local original **only** when both are `true`.
+
+Customer-web resource deletion now also requires a single-use, purpose-bound
+`resource_delete` proof before its browser-session routes delete a resource. That proof is
+an HttpOnly web cookie bound to a web MFA session and is not accepted by `/api/v1` bearer
+routes. Android must not scrape, mint, persist, or replay it. The versioned mobile deletion
+contract is unchanged in this release; installation-bound mobile authorization remains
+server-authoritative. A future mobile deletion step-up requires an explicit additive API
+contract rather than a client-side imitation of the browser cookie flow.
 HTTP 200, upload completion, and processing start are all insufficient.
 
 #### ⚠ DEFECT — `POST /artifact-deliveries` response shape (server bug, verified)
