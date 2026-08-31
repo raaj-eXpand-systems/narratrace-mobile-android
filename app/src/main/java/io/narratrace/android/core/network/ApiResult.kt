@@ -79,6 +79,12 @@ sealed interface ApiResult<out T> {
         override val supportReference: String,
     ) : Failure
 
+    /** A versioned HTTP 428 precondition that is not the legacy legal-review flow. */
+    data class PreconditionRequired(
+        override val message: String,
+        override val supportReference: String,
+    ) : Failure
+
     /** Rate limited. [retryAfterSeconds] is null when the server did not say. */
     data class RateLimited(
         override val message: String,

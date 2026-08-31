@@ -74,36 +74,6 @@ class AuthenticationCoordinatorTest {
     }
 
     @Test
-    fun `email verification continuation does not replay Google admission`() = runTest {
-        val challenge = EmailVerificationChallenge(
-            continuationToken = "opaque-continuation",
-            emailOtpToken = "opaque-otp-token",
-            maskedEmail = "p***@gmail.com",
-            expiresAt = "2026-08-25T20:10:00Z",
-        )
-        val gateway = FakeAuthenticationGateway().apply {
-            admissionResult = NativeAdmissionResult.EmailVerificationRequired(challenge)
-        }
-        var providerRequestCount = 0
-        val coordinator = coordinator(
-            gateway = gateway,
-            requester = IdentityTokenRequester {
-                providerRequestCount++
-                GoogleIdentityResult.Success("google-token")
-            },
-        )
-
-        assertEquals(
-            SignInResult.EmailVerificationRequired(challenge),
-            coordinator.signIn("NRTX-TEST-CODE", null),
-        )
-        assertEquals(SignInResult.Authenticated, coordinator.verifyEmailOtp(challenge, "12 34 56"))
-        assertEquals(1, providerRequestCount)
-        assertEquals(1, gateway.admissionCount)
-        assertEquals("123456", gateway.verifiedEmailCode)
-    }
-
-    @Test
     fun `internal role enrollment denial remains a distinct blocked state`() = runTest {
         val gateway = FakeAuthenticationGateway().apply {
             admissionFailure = ApiResult.Unauthorized(
@@ -143,11 +113,8 @@ private class FakeAuthenticationGateway : AuthenticationGateway {
     var admittedNonce: String? = null
     var admittedMfaCode: String? = null
     var admittedInviteCode: String? = null
-    var verifiedEmailCode: String? = null
     var meCount = 0
-    var admissionResult: NativeAdmissionResult = NativeAdmissionResult.Authenticated(
-        TokenPair("access", "refresh", "2026-08-11T20:00:00Z"),
-    )
+    var admissionResult = TokenPair("access", "refresh", "2026-08-11T20:00:00Z")
     var admissionFailure: ApiResult.Failure? = null
 
     override suspend fun challenge(): ApiResult<AuthChallenge> {
@@ -163,20 +130,12 @@ private class FakeAuthenticationGateway : AuthenticationGateway {
         inviteCode: String,
         mfaCode: String?,
         osVersion: String?,
-    ): ApiResult<NativeAdmissionResult> {
+    ): ApiResult<TokenPair> {
         admissionCount++
         admittedNonce = nonce
         admittedMfaCode = mfaCode
         admittedInviteCode = inviteCode
         return admissionFailure ?: ApiResult.Success(admissionResult, "support")
-    }
-
-    override suspend fun verifyEmailOtp(
-        challenge: EmailVerificationChallenge,
-        code: String,
-    ): ApiResult<TokenPair> {
-        verifiedEmailCode = code
-        return ApiResult.Success(TokenPair("access", "refresh", "2026-08-11T20:00:00Z"), "support")
     }
 
     override suspend fun me(accessToken: String): ApiResult<AuthenticatedAccount> {

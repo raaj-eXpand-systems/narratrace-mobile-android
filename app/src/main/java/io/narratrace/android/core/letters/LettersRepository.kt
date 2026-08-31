@@ -7,6 +7,7 @@ import io.narratrace.android.core.delivery.ArtifactDeliveryValidator
 import io.narratrace.android.core.delivery.DeliveryMode
 import io.narratrace.android.core.delivery.DeliveryValidationResult
 import io.narratrace.android.core.media.FeatureResult
+import io.narratrace.android.core.media.destructiveFeatureResult
 import io.narratrace.android.core.network.ApiResult
 import java.time.Clock
 import java.time.LocalDateTime
@@ -47,7 +48,7 @@ class LettersRepository(
         if (action !in setOf("resend_verification", "update_recipient_email")) return FeatureResult.Unavailable("Choose a supported Letter action.")
         return call { api.manage(id, action, email, it) }
     }
-    suspend fun delete(id: String) = call { api.delete(id, it) }
+    suspend fun delete(id: String) = call(destructive = true) { api.delete(id, it) }
 
     suspend fun create(
         recipientName: String, recipientEmail: String?, selfDelivery: Boolean, subject: String, body: String,
@@ -77,7 +78,10 @@ class LettersRepository(
         ) }
     }
 
-    private suspend fun <T> call(block: suspend (String) -> ApiResult<T>): FeatureResult<T> {
+    private suspend fun <T> call(
+        destructive: Boolean = false,
+        block: suspend (String) -> ApiResult<T>,
+    ): FeatureResult<T> {
         val lease = sessions.accessToken()
         if (lease !is TokenLease.Valid) return FeatureResult.AuthenticationRequired
         var result = block(lease.accessToken)
@@ -86,6 +90,7 @@ class LettersRepository(
             if (recovered !is TokenLease.Valid) return FeatureResult.AuthenticationRequired
             result = block(recovered.accessToken)
         }
+        if (destructive) return destructiveFeatureResult(result, sessions::signOut)
         return when (result) {
             is ApiResult.Success -> FeatureResult.Success(result.value)
             is ApiResult.Unauthorized -> FeatureResult.AuthenticationRequired

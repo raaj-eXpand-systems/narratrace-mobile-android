@@ -85,7 +85,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.activity.compose.BackHandler
 import io.narratrace.android.core.auth.AuthState
-import io.narratrace.android.core.auth.EmailVerificationChallenge
 import io.narratrace.android.core.auth.SignInResult
 import io.narratrace.android.core.auth.HostedAuthEvent
 import io.narratrace.android.core.auth.HostedAuthStartResult
@@ -683,8 +682,6 @@ private fun LegacySignInScreen(container: AppContainer, returning: Boolean) {
     val scope = rememberCoroutineScope()
     var inviteCode by remember { mutableStateOf("") }
     var mfaCode by remember { mutableStateOf("") }
-    var emailCode by remember { mutableStateOf("") }
-    var emailChallenge by remember { mutableStateOf<EmailVerificationChallenge?>(null) }
     var requiresMfaEnrollment by remember { mutableStateOf(false) }
     var isSigningIn by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -716,7 +713,7 @@ private fun LegacySignInScreen(container: AppContainer, returning: Boolean) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyMedium,
         )
-        if (emailChallenge == null && !requiresMfaEnrollment) {
+        if (!requiresMfaEnrollment) {
             OutlinedTextField(
                 value = inviteCode,
                 onValueChange = { value ->
@@ -749,45 +746,6 @@ private fun LegacySignInScreen(container: AppContainer, returning: Boolean) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyLarge,
             )
-        }
-        emailChallenge?.let { challenge ->
-            Text(
-                text = "Verify your email",
-                modifier = Modifier.padding(top = 24.dp).semantics {
-                    heading()
-                    liveRegion = LiveRegionMode.Polite
-                },
-                style = MaterialTheme.typography.headlineSmall,
-            )
-            Text(
-                text = "We sent a 6-digit code to ${challenge.maskedEmail}.",
-                modifier = Modifier.padding(top = 8.dp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            OutlinedTextField(
-                value = emailCode,
-                onValueChange = { value ->
-                    emailCode = value.filter(Char::isDigit).take(6)
-                    message = null
-                },
-                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
-                label = { Text("Email verification code") },
-                supportingText = { Text("Enter the 6-digit code. It expires after 10 minutes.") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                singleLine = true,
-                enabled = !isSigningIn,
-            )
-            TextButton(
-                onClick = {
-                    emailChallenge = null
-                    emailCode = ""
-                    message = null
-                    supportReference = ""
-                },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !isSigningIn,
-            ) { Text("Start sign-in again") }
         }
         if (requiresMfaEnrollment) {
             Text(
@@ -823,17 +781,10 @@ private fun LegacySignInScreen(container: AppContainer, returning: Boolean) {
                 supportReference = ""
                 scope.launch {
                     val coordinator = container.authenticationCoordinator(context)
-                    val result = emailChallenge?.let { coordinator.verifyEmailOtp(it, emailCode) }
-                        ?: coordinator.signIn(inviteCode, mfaCode)
+                    val result = coordinator.signIn(inviteCode, mfaCode)
                     when (result) {
                         SignInResult.Authenticated -> Unit
                         SignInResult.Cancelled -> Unit
-                        is SignInResult.EmailVerificationRequired -> {
-                            emailChallenge = result.challenge
-                            emailCode = ""
-                            inviteCode = ""
-                            mfaCode = ""
-                        }
                         is SignInResult.MfaEnrollmentRequired -> {
                             requiresMfaEnrollment = true
                             message = null
@@ -850,13 +801,12 @@ private fun LegacySignInScreen(container: AppContainer, returning: Boolean) {
                 }
             },
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(52.dp),
-            enabled = !isSigningIn && container.isApiConfigured && !requiresMfaEnrollment &&
-                (emailChallenge?.let { emailCode.length == 6 } ?: inviteCode.isNotBlank()),
+            enabled = !isSigningIn && container.isApiConfigured && !requiresMfaEnrollment && inviteCode.isNotBlank(),
         ) {
             if (isSigningIn) {
-                LoadingMessage(if (emailChallenge == null) "Signing in securely…" else "Verifying email code…")
+                LoadingMessage("Signing in securely…")
             } else {
-                Text(if (emailChallenge == null) "Continue with Google" else "Verify email code")
+                Text("Continue with Google")
             }
         }
         if (!container.isApiConfigured) {

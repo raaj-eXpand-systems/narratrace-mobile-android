@@ -38,55 +38,6 @@ internal data class NativeAdmissionRequest(
 )
 
 @Serializable
-internal data class NativeEmailOtpRequest(
-    val emailOtpContinuation: String,
-    val emailOtpToken: String,
-    val emailOtpCode: String,
-)
-
-@Serializable
-internal data class NativeAdmissionResponse(
-    val status: String? = null,
-    val accessToken: String? = null,
-    val refreshToken: String? = null,
-    val accessExpiresAt: String? = null,
-    val continuationToken: String? = null,
-    val emailOtpToken: String? = null,
-    val maskedEmail: String? = null,
-    val expiresAt: String? = null,
-)
-
-data class EmailVerificationChallenge(
-    val continuationToken: String,
-    val emailOtpToken: String,
-    val maskedEmail: String,
-    val expiresAt: String,
-)
-
-sealed interface NativeAdmissionResult {
-    data class Authenticated(val tokens: TokenPair) : NativeAdmissionResult
-    data class EmailVerificationRequired(val challenge: EmailVerificationChallenge) : NativeAdmissionResult
-}
-
-internal fun NativeAdmissionResponse.toAdmissionOutcomeOrNull(): NativeAdmissionResult? =
-    if (status == "email_verification_required") {
-        if (continuationToken.isNullOrBlank() || emailOtpToken.isNullOrBlank() ||
-            maskedEmail.isNullOrBlank() || expiresAt.isNullOrBlank()
-        ) null else NativeAdmissionResult.EmailVerificationRequired(
-            EmailVerificationChallenge(continuationToken, emailOtpToken, maskedEmail, expiresAt),
-        )
-    } else {
-        tokensOrNull()?.let(NativeAdmissionResult::Authenticated)
-    }
-
-private fun NativeAdmissionResponse.tokensOrNull(): TokenPair? =
-    if (accessToken.isNullOrBlank() || refreshToken.isNullOrBlank() || accessExpiresAt.isNullOrBlank()) {
-        null
-    } else {
-        TokenPair(accessToken, refreshToken, accessExpiresAt)
-    }
-
-@Serializable
 data class TokenPair(
     val accessToken: String,
     val refreshToken: String,
@@ -135,10 +86,6 @@ interface AuthenticationGateway {
         inviteCode: String,
         mfaCode: String? = null,
         osVersion: String? = null,
-    ): ApiResult<NativeAdmissionResult>
-    suspend fun verifyEmailOtp(
-        challenge: EmailVerificationChallenge,
-        code: String,
     ): ApiResult<TokenPair>
     suspend fun me(accessToken: String): ApiResult<AuthenticatedAccount>
 }
@@ -176,7 +123,7 @@ class AuthApi(private val client: NarratraceApiClient) : AuthenticationGateway, 
         inviteCode: String,
         mfaCode: String?,
         osVersion: String?,
-    ): ApiResult<NativeAdmissionResult> {
+    ): ApiResult<TokenPair> {
         val body = NarratraceJson.encodeToString(
             NativeAdmissionRequest(
                 idToken = idToken,
@@ -188,47 +135,8 @@ class AuthApi(private val client: NarratraceApiClient) : AuthenticationGateway, 
                 mfaCode = mfaCode,
             ),
         )
-        return client.post("/api/v1/auth/native", body, serializer<NativeAdmissionResponse>())
-            .toAdmissionResult()
+        return client.post("/api/v1/auth/native", body, serializer<TokenPair>())
     }
-
-    override suspend fun verifyEmailOtp(
-        challenge: EmailVerificationChallenge,
-        code: String,
-    ): ApiResult<TokenPair> {
-        val body = NarratraceJson.encodeToString(
-            NativeEmailOtpRequest(
-                emailOtpContinuation = challenge.continuationToken,
-                emailOtpToken = challenge.emailOtpToken,
-                emailOtpCode = code,
-            ),
-        )
-        return when (val result = client.post(
-            "/api/v1/auth/native",
-            body,
-            serializer<NativeAdmissionResponse>(),
-        )) {
-            is ApiResult.Success -> result.value.tokensOrNull()?.let {
-                ApiResult.Success(it, result.supportReference)
-            } ?: ApiResult.Unreadable(
-                reason = "The email verification response was incomplete.",
-                supportReference = result.supportReference,
-            )
-            is ApiResult.Failure -> result
-        }
-    }
-
-    private fun ApiResult<NativeAdmissionResponse>.toAdmissionResult(): ApiResult<NativeAdmissionResult> =
-        when (this) {
-            is ApiResult.Success -> {
-                value.toAdmissionOutcomeOrNull()?.let { ApiResult.Success(it, supportReference) }
-                    ?: ApiResult.Unreadable(
-                        reason = "The native admission response was incomplete.",
-                        supportReference = supportReference,
-                    )
-            }
-            is ApiResult.Failure -> this
-        }
 
     override suspend fun me(accessToken: String): ApiResult<AuthenticatedAccount> =
         client.get("/api/v1/me", serializer<AuthenticatedAccount>(), accessToken)

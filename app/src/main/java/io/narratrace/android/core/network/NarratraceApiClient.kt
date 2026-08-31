@@ -303,6 +303,8 @@ class NarratraceApiClient(
                 fieldName = failure.error.fieldName,
             )
             response.code == 403 -> ApiResult.Forbidden(message, failure.error.fieldName, supportReference)
+            response.code == 428 && failure.error.parsedCode == ApiErrorCode.PRECONDITION_REQUIRED ->
+                ApiResult.PreconditionRequired(message, supportReference)
             response.code == 428 -> ApiResult.LegalAcceptanceRequired(message, supportReference)
             response.code == 429 -> ApiResult.RateLimited(
                 message = message,

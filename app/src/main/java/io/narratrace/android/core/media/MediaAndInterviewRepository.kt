@@ -11,6 +11,21 @@ sealed interface FeatureResult<out T> {
     data class Unavailable(val message: String, val supportReference: String = "") : FeatureResult<Nothing>
 }
 
+internal fun <T> destructiveFeatureResult(
+    result: ApiResult<T>,
+    clearSession: () -> Unit,
+): FeatureResult<T> {
+    if (result is ApiResult.PreconditionRequired) {
+        clearSession()
+        return FeatureResult.AuthenticationRequired
+    }
+    return when (result) {
+        is ApiResult.Success -> FeatureResult.Success(result.value)
+        is ApiResult.Unauthorized -> FeatureResult.AuthenticationRequired
+        is ApiResult.Failure -> FeatureResult.Unavailable(result.message, result.supportReference)
+    }
+}
+
 /** Local originals remain queued unless the server explicitly confirms both guarantees. */
 internal fun PreservationAcknowledgement?.permitsLocalRemoval(): Boolean =
     this?.originalDurablyStored == true && integrityVerified
@@ -126,13 +141,13 @@ class MediaAndInterviewRepository(
         if (status !in setOf("active", "complete")) return FeatureResult.Unavailable("Choose a supported interview status.")
         return call { api.status(id, status, it) }
     }
-    suspend fun deleteInterview(id: String) = call { api.deleteInterview(id, it) }
+    suspend fun deleteInterview(id: String) = call(destructive = true) { api.deleteInterview(id, it) }
     suspend fun insights(id: String) = call { api.insights(id, it) }
     suspend fun narrative(id: String, generate: Boolean) = call { api.narrative(id, generate, it) }
     suspend fun share(id: String, method: String) = call { api.share(id, method, it) }
     suspend fun media() = call { api.media(it) }
     suspend fun mediaDetail(id: String) = call { api.mediaDetail(id, it) }
-    suspend fun deleteMedia(id: String) = call { api.deleteMedia(id, it) }
+    suspend fun deleteMedia(id: String) = call(destructive = true) { api.deleteMedia(id, it) }
     suspend fun updateCaption(id: String, caption: String): FeatureResult<MediaMutation> {
         if (caption.length > 300) return FeatureResult.Unavailable("Caption must be 300 characters or fewer.")
         return call { api.updateCaption(id, caption.trim(), it) }
@@ -144,7 +159,10 @@ class MediaAndInterviewRepository(
     }
     suspend fun playback(url: String) = api.playback(url)
 
-    private suspend fun <T> call(block: suspend (String) -> ApiResult<T>): FeatureResult<T> {
+    private suspend fun <T> call(
+        destructive: Boolean = false,
+        block: suspend (String) -> ApiResult<T>,
+    ): FeatureResult<T> {
         val lease = sessions.accessToken()
         if (lease !is TokenLease.Valid) return FeatureResult.AuthenticationRequired
         var result = block(lease.accessToken)
@@ -153,6 +171,7 @@ class MediaAndInterviewRepository(
             if (recovered !is TokenLease.Valid) return FeatureResult.AuthenticationRequired
             result = block(recovered.accessToken)
         }
+        if (destructive) return destructiveFeatureResult(result, sessions::signOut)
         return when (result) {
             is ApiResult.Success -> FeatureResult.Success(result.value)
             is ApiResult.Unauthorized -> FeatureResult.AuthenticationRequired

@@ -176,6 +176,26 @@ class NarratraceApiClientTest {
         assertEquals(ApiErrorCode.AUTHENTICATION_REQUIRED, result.code)
         assertEquals("support-123", result.supportReference)
     }
+
+    @Test
+    fun `a versioned deletion precondition requires recent authentication rather than legal review`() {
+        val body = """
+            {"error":{"code":"PRECONDITION_REQUIRED","message":"Sign in again before deleting this resource."},
+             "meta":{"apiVersion":"1","requestId":"request-delete","supportId":"support-delete"}}
+        """.trimIndent()
+        val response = Response.Builder()
+            .request(Request.Builder().url("https://www.narratrace.io/api/v1/media/resource-1").build())
+            .protocol(Protocol.HTTP_1_1)
+            .code(428)
+            .message("Precondition Required")
+            .body(body.toResponseBody("application/json".toMediaType()))
+            .build()
+
+        val result = client("https://www.narratrace.io").decode(response, serializer<Profile>())
+
+        assertTrue(result is ApiResult.PreconditionRequired)
+        assertEquals("support-delete", (result as ApiResult.PreconditionRequired).supportReference)
+    }
 }
 
 /**
@@ -204,6 +224,15 @@ class ApiFailureClassificationTest {
     }
 
     @Test
+    fun `recent authentication is distinct from legal acceptance`() {
+        val result: ApiResult<Unit> = ApiResult.PreconditionRequired(
+            "Sign in again before deleting this resource.", "s-delete",
+        )
+        assertTrue(result is ApiResult.PreconditionRequired)
+        assertTrue(result !is ApiResult.LegalAcceptanceRequired)
+    }
+
+    @Test
     fun `rate limiting carries retry guidance when the server supplies it`() {
         val result = ApiResult.RateLimited("Please wait.", 900, "s4")
         assertEquals(900L, result.retryAfterSeconds)
@@ -229,6 +258,7 @@ class ApiFailureClassificationTest {
             ApiResult.Unauthorized("a", "s"),
             ApiResult.Forbidden("b", null, "s"),
             ApiResult.LegalAcceptanceRequired("c", "s"),
+            ApiResult.PreconditionRequired("sign in again", "s"),
             ApiResult.RateLimited("d", null, "s"),
             ApiResult.Offline(),
             ApiResult.Unreadable(reason = "x"),

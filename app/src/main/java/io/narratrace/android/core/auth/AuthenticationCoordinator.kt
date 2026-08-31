@@ -13,7 +13,6 @@ fun interface IdentityTokenRequester {
 sealed interface SignInResult {
     data object Authenticated : SignInResult
     data object Cancelled : SignInResult
-    data class EmailVerificationRequired(val challenge: EmailVerificationChallenge) : SignInResult
     data class MfaEnrollmentRequired(
         val message: String,
         val supportReference: String = "",
@@ -57,26 +56,6 @@ class AuthenticationCoordinator(
             osVersion = osVersion,
             inviteCode = normalizedInviteCode,
         )) {
-            is ApiResult.Success -> when (val admission = result.value) {
-                is NativeAdmissionResult.Authenticated -> admission.tokens
-                is NativeAdmissionResult.EmailVerificationRequired -> {
-                    return SignInResult.EmailVerificationRequired(admission.challenge)
-                }
-            }
-            is ApiResult.Failure -> return result.toSignInResult()
-        }
-        return adopt(tokens)
-    }
-
-    suspend fun verifyEmailOtp(
-        challenge: EmailVerificationChallenge,
-        code: String,
-    ): SignInResult {
-        val normalizedCode = code.filter(Char::isDigit)
-        if (normalizedCode.length != 6) {
-            return SignInResult.Failed("Enter the 6-digit code sent to your email.")
-        }
-        val tokens = when (val result = gateway.verifyEmailOtp(challenge, normalizedCode)) {
             is ApiResult.Success -> result.value
             is ApiResult.Failure -> return result.toSignInResult()
         }

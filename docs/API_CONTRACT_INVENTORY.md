@@ -211,6 +211,8 @@ A trusted-browser cookie is never sufficient for a role-holder sign-in. The host
 enforces this before exchanging the Android transaction; compatibility admission enforces
 the same rule through `mfa_enrollment_required` and `mfa_required`. Ordinary unenrolled
 customers remain quiet and are not prompted for an email OTP or optional authenticator.
+The retired protected-asset email-OTP continuation fields and response state are absent
+from the native request, response decoder, coordinator, and compatibility sign-in UI.
 
 Apple hashes the nonce (`sha256` hex) before assertion verification; Google passes it raw.
 
@@ -327,10 +329,17 @@ gate** required by plan §6. Android deletes a local original **only** when both
 Customer-web resource deletion now also requires a single-use, purpose-bound
 `resource_delete` proof before its browser-session routes delete a resource. That proof is
 an HttpOnly web cookie bound to a web MFA session and is not accepted by `/api/v1` bearer
-routes. Android must not scrape, mint, persist, or replay it. The versioned mobile deletion
-contract is unchanged in this release; installation-bound mobile authorization remains
-server-authoritative. A future mobile deletion step-up requires an explicit additive API
-contract rather than a client-side imitation of the browser cookie flow.
+routes. Android must not scrape, mint, persist, or replay it.
+
+The mobile DELETE routes for interviews, individual interview responses, media, Letters,
+and Circles instead require their own server-side recent-auth precondition. Android does
+not currently expose individual-response deletion, but any future caller inherits this
+same contract. The installation session's `authenticated_at` must be no more than 10
+minutes old; otherwise the route returns versioned HTTP `428` with
+`PRECONDITION_REQUIRED` and `Sign in again before deleting this resource.` Android
+classifies that separately from legal acceptance, destroys the old protected credential,
+and starts normal admission. It never retries the DELETE automatically; the member must
+confirm deletion again after signing in.
 HTTP 200, upload completion, and processing start are all insufficient.
 
 #### ⚠ DEFECT — `POST /artifact-deliveries` response shape (server bug, verified)

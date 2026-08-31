@@ -69,6 +69,26 @@ class MediaAndInterviewRepositoryTest {
         assertTrue(reconciliationIssue(ApiResult.Offline()).retryAutomatically)
     }
 
+    @Test fun `deletion precondition clears the stale session and returns to authentication`() {
+        var cleared = false
+        val result = destructiveFeatureResult<Unit>(
+            ApiResult.PreconditionRequired(
+                "Sign in again before deleting this resource.", "support-delete",
+            ),
+        ) { cleared = true }
+
+        assertTrue(cleared)
+        assertTrue(result is FeatureResult.AuthenticationRequired)
+    }
+
+    @Test fun `ordinary deletion failure does not clear a usable session`() {
+        var cleared = false
+        val result = destructiveFeatureResult<Unit>(ApiResult.Offline()) { cleared = true }
+
+        assertFalse(cleared)
+        assertTrue(result is FeatureResult.Unavailable)
+    }
+
     @Test fun `standalone media requests carry archive target and old requests stay additive`() {
         val archiveId = "11111111-2222-4333-8444-555555555555"
         val targeted = PendingMedia(
