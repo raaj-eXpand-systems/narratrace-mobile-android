@@ -145,6 +145,17 @@ the exchanged access credential and atomically protects the rotating token pair 
 after that authoritative projection validates. Bootstrap provides one server-authored `hosted_web` upgrade destination;
 `returnsToApp` must be `false` for plan upgrades, plan changes, add-ons, and billing
 recovery. Android contains no native purchase logic and constructs no upgrade URL.
+Same-plan repurchase prevention and valid-upgrade eligibility are therefore enforced by
+the hosted server workflow, not duplicated in Android. The client must not infer an
+eligible target from the current plan or offer a native checkout fallback when the hosted
+workflow declines a change.
+
+The customer-web root-route recovery for a stale `mfa_required` browser session is also
+web-only. It revokes browser trust and clears the web session before returning to sign-in;
+it does not change the hosted mobile protocol or installation-bound token contract.
+Android already fails safely at its corresponding boundary: an unauthorized refresh is
+terminal, destroys the locally protected session, and returns the app to native sign-in.
+Transient transport and server failures retain the protected session for a later retry.
 
 The following challenge/native routes remain only for a bounded older-server rollback
 window. They are selected solely when runtime config predates the hosted contract and
@@ -246,6 +257,12 @@ therefore enable only the guided interview when `experienceFirst` is active and 
 is not complete. A paying account (`hasAccess == true`) always uses its full entitlements,
 even if its original guided choice remains in the response. Archive-only accounts keep
 read access through `canReadArchive` without gaining capture access.
+
+An untouched, unpaid account may change its saved choice to `guided_interview` through the
+existing authenticated web workflow. No new Android request or response field is required:
+the next authoritative `/bootstrap` and `/account` projections expose the result through the
+existing `experiment.experienceFirst` and `resourceState` fields. Android must remain a
+projection consumer and must not reproduce the server's untouched-account eligibility check.
 
 ### Mobile platform
 
