@@ -303,7 +303,7 @@ as the existing `productFamily:'family'`, `productTier`, annual period, access, 
 and canonical subscription-state fields. These changes are additive and require no native
 gift, Cart, payment, address, or subscription-lifecycle state.
 
-The current legal gate returns Terms and Privacy versions `2026-09-01.1`. Android continues
+The current legal gate returns Terms version `2026-09-01.2` and Privacy version `2026-09-01.1`. Android continues
 to trust the returned acceptance booleans and versions rather than bundling a native legal
 version. Its customer-visible legal-change summary describes Stripe-hosted collection of
 payment credentials and checkout addresses; Android never receives or stores that data.

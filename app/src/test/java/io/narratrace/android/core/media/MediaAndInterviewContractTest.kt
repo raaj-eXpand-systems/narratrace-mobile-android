@@ -36,7 +36,7 @@ class MediaAndInterviewContractTest {
         val accepted = LegalAcceptance(
             termsAccepted = true, privacyAcknowledged = true, aiNoticeAcknowledged = false,
             specialCategoryConsent = false, contentRightsAttested = true,
-            termsVersion = "2026-09-01.1", privacyVersion = "2026-09-01.1",
+            termsVersion = "2026-09-01.2", privacyVersion = "2026-09-01.1",
             aiNoticeVersion = "2026-08-26.1", contentRightsVersion = "2026-08-26",
         )
         assertTrue(requiredLegalAcceptanceComplete(accepted))
