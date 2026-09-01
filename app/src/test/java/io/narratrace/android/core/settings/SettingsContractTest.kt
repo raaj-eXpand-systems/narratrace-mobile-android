@@ -6,11 +6,13 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class SettingsContractTest {
-    @Test fun `profile supports English and Hindi preference contract`() {
-        val response = NarratraceJson.decodeFromString<ProfileResponse>("""{"profile":{
-          "email":"maya@example.com","displayName":"Maya","birthYear":1980,"preferredLanguage":"hi"
-        }}""")
-        assertEquals("hi", response.profile.preferredLanguage)
+    @Test fun `profile supports the English and Hindi gift interview preferences`() {
+        for (language in listOf("en", "hi")) {
+            val response = NarratraceJson.decodeFromString<ProfileResponse>("""{"profile":{
+              "email":"maya@example.com","displayName":"Maya","birthYear":1980,"preferredLanguage":"$language"
+            }}""")
+            assertEquals(language, response.profile.preferredLanguage)
+        }
     }
 
     @Test fun `notification preference snake case fields decode`() {

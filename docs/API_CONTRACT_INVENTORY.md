@@ -4,7 +4,7 @@
 `/api/v1` contract as iOS. Where this document and the Kotlin disagree, this document —
 and ultimately the server source — wins.
 
-**Generated:** 2026-09-01, synchronized through `narratrace-app@be27b98`.
+**Generated:** 2026-09-01, synchronized through `narratrace-app@ccca8b6`.
 **Status:** Phase 0c deliverable. Regenerate before each phase; the server moves.
 
 Sections marked **⚠ UNVERIFIED** were inferred and must be confirmed against the SQL
@@ -149,6 +149,14 @@ Same-plan repurchase prevention and valid-upgrade eligibility are therefore enfo
 the hosted server workflow, not duplicated in Android. The client must not infer an
 eligible target from the current plan or offer a native checkout fallback when the hosted
 workflow declines a change.
+
+The current hosted workflow distinguishes repeat purchases without adding a native billing
+contract. A second A Life purchase is rejected with
+`ADDITIONAL_STORYTELLER_RECOMMENDED` and directs the authenticated web experience to the
+one-time $79 Additional storyteller add-on. A second Family purchase is rejected with
+`FAMILY_ALREADY_ACTIVE` because Family already includes unlimited storytellers. Tier changes
+use `PLAN_CHANGE_REQUIRED`. Android must present only its existing server-authored Account
+handoff; it must not reproduce these prices, limits, redirect URLs, or conflict decisions.
 
 Production checkout validates the requested immutable SKU against its own Stripe lookup
 key. It does not require unrelated catalog entries to be available before that purchase can
@@ -303,6 +311,12 @@ as the existing `productFamily:'family'`, `productTier`, annual period, access, 
 and canonical subscription-state fields. These changes are additive and require no native
 gift, Cart, payment, address, or subscription-lifecycle state.
 
+Before hosted redemption, the recipient chooses English (`en`) or Hindi (`hi`). The web
+flow persists that choice through the existing profile preference before redeeming the
+welcome code. Android already decodes `preferredLanguage` from `/bootstrap` and `/profile`,
+validates the same two values for later profile changes, and does not need a gift-specific
+language DTO or redemption request.
+
 The current legal gate returns Terms version `2026-09-01.2` and Privacy version `2026-09-01.1`. Android continues
 to trust the returned acceptance booleans and versions rather than bundling a native legal
 version. Its customer-visible legal-change summary describes Stripe-hosted collection of
@@ -450,25 +464,22 @@ plan §8. Android must never cache a letter body and must render the sealed stat
 access must evict this content locally — so it must be stored in the encrypted,
 account-namespaced cache, never in a plain Room column.
 
-### Billing — **no iOS caller for any of these**
+### Billing — hosted-web authority
 
 | Route | Methods | Auth | Notes |
 |---|---|---|---|
-| `/billing/offers` | GET | bearer\|web | `{offers: []}` when no active Stripe subscription |
-| `/billing/actions` | POST | bearer\|web | `mode:'preview'\|'confirm'`, `campaignVersionId`, `action` ∈ `discount_next_renewal, renew_early, upgrade_now, upgrade_at_renewal, switch_to_annual`, `idempotencyKey` — **body field, 16–180 chars, not the header** |
-| `/billing/promotions/preview` | POST | bearer\|web | `code` 3–32, `plan` ∈ `individual\|family\|extended_family`, `billing`, `addons?:['storage']` |
+| `/billing/offers` | GET | bearer\|web | Retired compatibility response: `offers:[], catalogStatus:'retired'` |
+| `/billing/actions` | POST | bearer\|web | Retired; always `410 GONE` after authentication. It cannot execute a legacy regional/monthly action |
+| `/billing/promotions/preview` | POST | bearer\|web | Retired; always `410 GONE` after authentication. It cannot quote a legacy regional/monthly price |
 | `/billing/artifacts` | GET | bearer\|web | RL 30/60 s |
 | `/billing/artifacts/[reference]/download` | GET | bearer\|web | **RAW PDF bytes.** RL 20/60 s. Errors use the JSON envelope |
 | `/billing/recovery-session` | POST | bearer\|web | RL 10/60 s → `{url, returnUrl, purpose:'payment_method_recovery'}` |
 
-> **⚠ UNVERIFIED:** the nested `preview` shape in `/billing/actions` and `promotion` in
-> `/billing/promotions/preview` were not traced into
-> `lib/customerBillingActionExecution.ts` / `lib/customerPromotionPreview.ts`. Only
-> `preview.amountDueMinor` and `preview.currency` are confirmed.
-
-**Android decision:** these seven have no iOS precedent. Per the agreed parity boundary
-(match iOS exactly), Android does **not** implement them in Phases 1–6 — billing is an
-authenticated web handoff. Revisit only if Play Billing policy forces it.
+**Android decision:** Android calls none of these endpoints. Billing remains an authenticated
+web handoff, so retirement of the first three is backward compatible and cannot strand a
+native DTO, cache, or pending action. Android must not treat `catalogStatus:'retired'` as an
+invitation to fall back to an embedded regional/monthly catalog. Revisit native billing only
+if Google Play policy requires it and the product owner separately authorizes that work.
 
 ---
 
