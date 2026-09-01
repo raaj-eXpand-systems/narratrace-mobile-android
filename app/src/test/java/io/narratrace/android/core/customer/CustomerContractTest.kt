@@ -10,6 +10,27 @@ import org.junit.Test
 
 class CustomerContractTest {
     @Test
+    fun `account projection accepts every production product without a native catalog`() {
+        val products = listOf(
+            "a_life" to "essential",
+            "a_life" to "complete",
+            "family" to "essential",
+            "family" to "complete",
+        )
+
+        products.forEachIndexed { index, (family, tier) ->
+            val account = NarratraceJson.decodeFromString<AccountSummary>(
+                """{"status":"subscription_active","plan":"${if (family == "family") "family" else "individual"}","productFamily":"$family","productTier":"$tier","billingCycle":"${if (family == "family") "annual" else "one_time"}","currentPeriodEndsAt":${if (family == "family") "\"2027-09-01T17:00:00.000Z\"" else "null"},"hasAccess":true,"canReadArchive":true,"storage":{"usedBytes":0,"availableBytes":1,"totalBytes":1,"usedLabel":"0 B","availableLabel":"1 B","totalLabel":"1 B","usedPercent":0},"productionArchives":[{"id":"00000000-0000-4000-8000-${index.toString().padStart(12, '0')}","entitlementId":"10000000-0000-4000-8000-${index.toString().padStart(12, '0')}","subjectName":"Recipient","productFamily":"$family","productTier":"$tier"}],"capabilities":{"captureMemories":true,"captureVideo":${tier == "complete"},"createLetters":true,"managePeople":true,"familyCircles":${family == "family"}}}""",
+            )
+
+            assertEquals(family, account.productFamily)
+            assertEquals(tier, account.productTier)
+            assertEquals(family, account.productionArchives.single().productFamily)
+            assertEquals(tier == "complete", account.capabilities.captureVideo)
+        }
+    }
+
+    @Test
     fun `account contract decodes server formatted storage and capabilities`() {
         val payload = """
             {"data":{"status":"subscription_active","plan":"family","billingCycle":"annual",

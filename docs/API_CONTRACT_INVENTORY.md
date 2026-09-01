@@ -4,7 +4,7 @@
 `/api/v1` contract as iOS. Where this document and the Kotlin disagree, this document —
 and ultimately the server source — wins.
 
-**Generated:** 2026-08-10, from `narratrace-app@codex` and `narratrace-mobile-ios`.
+**Generated:** 2026-09-01, synchronized through `narratrace-app@be27b98`.
 **Status:** Phase 0c deliverable. Regenerate before each phase; the server moves.
 
 Sections marked **⚠ UNVERIFIED** were inferred and must be confirmed against the SQL
@@ -283,6 +283,30 @@ existing authenticated web workflow. No new Android request or response field is
 the next authoritative `/bootstrap` and `/account` projections expose the result through the
 existing `experiment.experienceFirst` and `resourceState` fields. Android must remain a
 projection consumer and must not reproduce the server's untouched-account eligibility check.
+
+#### Gift and checkout boundary (2026-09-01)
+
+Gift purchase, recipient correction, welcome-code rotation, printable-card access, and Cart
+state remain authenticated hosted-web workflows. Android does not call the web-only
+`/api/stripe/production-checkout` or `/api/account/production-gifts` routes and must not
+reimplement their authorization or validation. The hosted checkout contract now supports
+all four production products (`a_life_essential`, `a_life_complete`, `family_essential`,
+`family_complete`) and requires a recipient name, relationship (1–40 characters), a
+recipient email distinct from the purchaser for recipient-owned gifts, and a server-resolved
+delivery date plus `morning`, `afternoon`, or `evening` in an IANA timezone.
+
+The welcome code, not a recipient-email match or a native deep link, authorizes initial
+recipient redemption. Correcting an unredeemed recipient rotates the welcome code and
+invalidates the old code. After hosted redemption, Android consumes only the existing
+server-authoritative `/bootstrap` and `/account` projections. Family gifts therefore arrive
+as the existing `productFamily:'family'`, `productTier`, annual period, access, capability,
+and canonical subscription-state fields. These changes are additive and require no native
+gift, Cart, payment, address, or subscription-lifecycle state.
+
+The current legal gate returns Terms and Privacy versions `2026-09-01.1`. Android continues
+to trust the returned acceptance booleans and versions rather than bundling a native legal
+version. Its customer-visible legal-change summary describes Stripe-hosted collection of
+payment credentials and checkout addresses; Android never receives or stores that data.
 
 ### Mobile platform
 
