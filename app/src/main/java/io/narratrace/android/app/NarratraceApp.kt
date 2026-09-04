@@ -143,6 +143,11 @@ internal const val PRIVACY_POLICY_URL = "https://getnarratrace.com/privacy"
 internal const val COOKIE_POLICY_URL = "https://getnarratrace.com/cookies"
 internal const val LEGAL_REVIEW_HEADING = "Review Narratrace Terms"
 internal const val MEDIA_INSIGHTS_HEADING = "Nia’s media insights"
+internal fun shouldRefreshPhotoInsights(mediaKind: String, enabled: Boolean) =
+    mediaKind == "photo" && enabled
+
+internal fun visibleMediaClarifyingQuestions(mediaKind: String, enabled: Boolean, questions: List<String>) =
+    if (shouldRefreshPhotoInsights(mediaKind, enabled)) questions.take(3) else emptyList()
 internal const val LEGAL_CHANGE_SUMMARY = "The Terms and Privacy Policy clarify that Stripe-hosted Checkout collects and stores payment credentials and checkout addresses, while Narratrace receives limited transaction and billing records."
 internal const val NIA_DEFINITION = "Nia is the name Narratrace gives its AI assistant and AI-supported story companion. References to Nia mean Narratrace’s AI features, not a person."
 internal const val ADULT_ACCOUNT_NOTICE = "Narratrace accounts are intended only for people 18 years of age or older."
@@ -1008,8 +1013,11 @@ private fun CustomerMoreScreen(
                                 archive.photographs?.let { Text("Photos: ${"%,d".format(it.remaining)} remaining", style = MaterialTheme.typography.bodySmall) }
                                 archive.videoSeconds?.let { allowance ->
                                     Text(
-                                        if (current.value.capabilities.captureVideo) "Video: ${allowance.remaining.durationAllowanceLabel()} remaining"
-                                        else "Video: not included",
+                                        text = if (current.value.capabilities.captureVideo) {
+                                            "Video: ${allowance.remaining.durationAllowanceLabel()} remaining"
+                                        } else {
+                                            "Video: not included"
+                                        },
                                         style = MaterialTheme.typography.bodySmall,
                                     )
                                 }
@@ -2567,11 +2575,28 @@ private fun CustomerMediaDetailScreen(container: AppContainer, mediaId: String, 
     var confirmDelete by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var delivering by remember { mutableStateOf(false) }
+    var photoInsightsEnabled by remember { mutableStateOf(false) }
+    var saveMessage by remember { mutableStateOf<String?>(null) }
+    var saveError by remember { mutableStateOf(false) }
     var caption by remember { mutableStateOf("") }; var tags by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    suspend fun refreshAfterSavedEdit(mediaKind: String, savedMessage: String): String {
+        if (!shouldRefreshPhotoInsights(mediaKind, photoInsightsEnabled)) {
+            saveError = false
+            return savedMessage
+        }
+        return when (val refreshed = container.mediaRepository.refreshPhotoInsights(mediaId)) {
+            is FeatureResult.Success -> { saveError = false; refreshed.value.message }
+            is FeatureResult.Unavailable -> { saveError = true; refreshed.message }
+            FeatureResult.AuthenticationRequired -> { saveError = true; "Sign in again before refreshing photo insights." }
+        }
+    }
     LaunchedEffect(mediaId) {
-        result = container.mediaRepository.mediaDetail(mediaId)
-        val detail = (result as? FeatureResult.Success)?.value?.media
+        val loaded = container.mediaRepository.mediaDetail(mediaId)
+        photoInsightsEnabled = ((container.settingsRepository.mediaAiPreferences() as? FeatureResult.Success)
+            ?.value?.preferences?.photoAiInsightsEnabled == true)
+        result = loaded
+        val detail = (loaded as? FeatureResult.Success)?.value?.media
         caption = detail?.caption.orEmpty(); tags = detail?.customTags?.joinToString(", ").orEmpty()
         if (detail?.kind == "photo" && detail.playbackUrl != null) photoBytes = container.mediaRepository.playback(detail.playbackUrl)
     }
@@ -2608,10 +2633,37 @@ private fun CustomerMediaDetailScreen(container: AppContainer, mediaId: String, 
                 detail.transcript?.takeIf(String::isNotBlank)?.let { Text("Transcript", style = MaterialTheme.typography.titleLarge); Text(it) }
                 detail.summary?.takeIf(String::isNotBlank)?.let { Text("Summary", style = MaterialTheme.typography.titleLarge); Text(it) }
                 if (detail.tags.isNotEmpty() || detail.customTags.isNotEmpty()) Text((detail.tags + detail.customTags).joinToString(" · "), style = MaterialTheme.typography.bodySmall)
+                val clarifyingQuestions = visibleMediaClarifyingQuestions(detail.kind, photoInsightsEnabled, detail.clarifyingQuestions)
+                if (clarifyingQuestions.isNotEmpty()) {
+                    Text("Nia would like to clarify", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+                    clarifyingQuestions.forEach { question -> Text("• $question") }
+                    Text("Add what you know to the caption or your tags. Nia will use it only when Photo insights are enabled.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                saveMessage?.let { Text(it, Modifier.semantics { liveRegion = if (saveError) LiveRegionMode.Assertive else LiveRegionMode.Polite }, color = if (saveError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
                 OutlinedTextField(caption, { caption = it.take(300) }, Modifier.fillMaxWidth(), label = { Text("Caption") })
-                Button(onClick = { busy = true; scope.launch { if (container.mediaRepository.updateCaption(mediaId, caption) is FeatureResult.Success) result = container.mediaRepository.mediaDetail(mediaId); busy = false } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Save caption") }
+                Button(onClick = { busy = true; scope.launch {
+                    when (val saved = container.mediaRepository.updateCaption(mediaId, caption)) {
+                        is FeatureResult.Success -> {
+                            saveMessage = refreshAfterSavedEdit(detail.kind, "Caption saved.")
+                            result = container.mediaRepository.mediaDetail(mediaId)
+                        }
+                        is FeatureResult.Unavailable -> { saveError = true; saveMessage = saved.message }
+                        FeatureResult.AuthenticationRequired -> { saveError = true; saveMessage = "Sign in again before saving this caption." }
+                    }
+                    busy = false
+                } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Save caption") }
                 OutlinedTextField(tags, { tags = it.take(320) }, Modifier.fillMaxWidth(), label = { Text("Custom tags") }, supportingText = { Text("Comma-separated; up to 10 tags") })
-                Button(onClick = { busy = true; scope.launch { if (container.mediaRepository.updateTags(mediaId, tags.split(',')) is FeatureResult.Success) result = container.mediaRepository.mediaDetail(mediaId); busy = false } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Save tags") }
+                Button(onClick = { busy = true; scope.launch {
+                    when (val saved = container.mediaRepository.updateTags(mediaId, tags.split(','))) {
+                        is FeatureResult.Success -> {
+                            saveMessage = refreshAfterSavedEdit(detail.kind, "Tags saved.")
+                            result = container.mediaRepository.mediaDetail(mediaId)
+                        }
+                        is FeatureResult.Unavailable -> { saveError = true; saveMessage = saved.message }
+                        FeatureResult.AuthenticationRequired -> { saveError = true; saveMessage = "Sign in again before saving these tags." }
+                    }
+                    busy = false
+                } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Save tags") }
                 Button(onClick = { delivering = true }, enabled = detail.state == "ready", modifier = Modifier.fillMaxWidth()) { Text("Deliver this ${detail.kind}") }
                 if (detail.state != "ready") Text("Delivery becomes available after preservation and processing are complete.", style = MaterialTheme.typography.bodySmall)
                 TextButton(onClick = { confirmDelete = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Delete media", color = MaterialTheme.colorScheme.error) }

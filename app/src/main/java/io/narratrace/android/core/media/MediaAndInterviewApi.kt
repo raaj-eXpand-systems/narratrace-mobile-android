@@ -69,12 +69,15 @@ import kotlinx.serialization.serializer
     val createdAt: String, val text: String? = null, val transcript: String? = null,
     val summary: String? = null, val caption: String? = null, val narrative: String? = null,
     val tags: List<String> = emptyList(), val customTags: List<String> = emptyList(),
-    val insights: List<MediaInsight> = emptyList(), val playbackUrl: String? = null,
+    val insights: List<MediaInsight> = emptyList(), val clarifyingQuestions: List<String> = emptyList(),
+    val playbackUrl: String? = null,
 )
 @Serializable data class MediaDetailResponse(val kind: String, val media: MediaDetail)
 @Serializable data class Deleted(val deleted: Boolean)
 @Serializable private data class MediaCaptionInput(val caption: String)
 @Serializable private data class MediaTagsInput(val customTags: List<String>)
+@Serializable private data class MediaActionInput(val action: String)
+@Serializable data class PhotoInsightRefresh(val kind: String, val message: String)
 @Serializable data class MediaMutation(val kind: String, val media: MediaSummary)
 @Serializable data class MediaTagsMutation(val kind: String, val customTags: List<String>)
 @Serializable private data class VideoUploadRequest(
@@ -152,6 +155,9 @@ class MediaAndInterviewApi(private val client: NarratraceApiClient) {
     suspend fun deleteMedia(id: String, token: String): ApiResult<Deleted> = client.delete("/api/v1/media/${segment(id)}", serializer<Deleted>(), token)
     suspend fun updateCaption(id: String, caption: String, token: String): ApiResult<MediaMutation> = client.patch("/api/v1/media/${segment(id)}", NarratraceJson.encodeToString(MediaCaptionInput(caption)), serializer<MediaMutation>(), token)
     suspend fun updateTags(id: String, tags: List<String>, token: String): ApiResult<MediaTagsMutation> = client.patch("/api/v1/media/${segment(id)}", NarratraceJson.encodeToString(MediaTagsInput(tags)), serializer<MediaTagsMutation>(), token)
+    suspend fun refreshPhotoInsights(id: String, token: String): ApiResult<PhotoInsightRefresh> = client.post(
+        "/api/v1/media/${segment(id)}", NarratraceJson.encodeToString(MediaActionInput("refresh_insights")), serializer<PhotoInsightRefresh>(), token,
+    )
     suspend fun playback(url: String): ByteArray? = client.getSignedStorage(url)
     suspend fun authorizeVideo(item: PendingMedia, token: String): ApiResult<VideoAuthorization> = if (item.kind == PendingMediaKind.InterviewVideo) client.post(
         "/api/v1/interviews/${segment(item.interviewId.orEmpty())}/video-responses",

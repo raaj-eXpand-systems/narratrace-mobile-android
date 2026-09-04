@@ -11,6 +11,8 @@ import io.narratrace.android.app.ADULT_ACCOUNT_NOTICE
 import io.narratrace.android.app.LEGAL_CHANGE_SUMMARY
 import io.narratrace.android.app.LEGAL_REVIEW_HEADING
 import io.narratrace.android.app.MEDIA_INSIGHTS_HEADING
+import io.narratrace.android.app.shouldRefreshPhotoInsights
+import io.narratrace.android.app.visibleMediaClarifyingQuestions
 import io.narratrace.android.app.NIA_DEFINITION
 import io.narratrace.android.app.PRIVACY_POLICY_URL
 import io.narratrace.android.app.TERMS_POLICY_URL
@@ -70,5 +72,29 @@ class MediaAndInterviewContractTest {
         assertEquals("{\"acceptTerms\":true}", terms)
         assertEquals("{\"attestContentRights\":true}", rights)
         assertEquals("{\"specialCategoryConsent\":true}", sensitive)
+    }
+
+    @Test fun `media detail supports optional bounded Nia clarification questions`() {
+        val current = NarratraceJson.decodeFromString<MediaDetailResponse>("""{
+          "kind":"found","media":{"id":"p-1","kind":"photo","title":"Family photo","state":"ready",
+          "createdAt":"now","clarifyingQuestions":["Who is standing beside you?","Was this taken in Delhi?"]}
+        }""")
+        assertEquals(2, current.media.clarifyingQuestions.size)
+        assertEquals("Who is standing beside you?", current.media.clarifyingQuestions.first())
+
+        val olderServer = NarratraceJson.decodeFromString<MediaDetailResponse>("""{
+          "kind":"found","media":{"id":"p-2","kind":"photo","title":"Older response","state":"ready","createdAt":"now"}
+        }""")
+        assertTrue(olderServer.media.clarifyingQuestions.isEmpty())
+    }
+
+    @Test fun `photo clarification UI follows consent and media kind`() {
+        assertTrue(shouldRefreshPhotoInsights("photo", true))
+        assertFalse(shouldRefreshPhotoInsights("photo", false))
+        assertFalse(shouldRefreshPhotoInsights("video", true))
+        val questions = listOf("One?", "Two?", "Three?", "Four?")
+        assertEquals(questions.take(3), visibleMediaClarifyingQuestions("photo", true, questions))
+        assertTrue(visibleMediaClarifyingQuestions("photo", false, questions).isEmpty())
+        assertTrue(visibleMediaClarifyingQuestions("video", true, questions).isEmpty())
     }
 }

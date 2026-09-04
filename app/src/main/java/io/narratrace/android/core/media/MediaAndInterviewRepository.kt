@@ -155,6 +155,8 @@ class MediaAndInterviewRepository(
         if (caption.length > 300) return FeatureResult.Unavailable("Caption must be 300 characters or fewer.")
         return call { api.updateCaption(id, caption.trim(), it) }
     }
+    suspend fun refreshPhotoInsights(id: String) = call { api.refreshPhotoInsights(id, it) }
+
     suspend fun updateTags(id: String, tags: List<String>): FeatureResult<MediaTagsMutation> {
         val clean = tags.map(String::trim).filter(String::isNotEmpty).distinct()
         if (clean.size > 10 || clean.any { it.length > 30 }) return FeatureResult.Unavailable("Use up to 10 tags, each 30 characters or fewer.")
