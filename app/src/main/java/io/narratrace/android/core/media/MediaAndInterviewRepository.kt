@@ -44,6 +44,9 @@ internal fun reconciliationIssue(failure: ApiResult.Failure): MediaReconciliatio
         ApiErrorCode.STORAGE_LIMIT_REACHED,
         ApiErrorCode.DUPLICATE_RESOURCE,
     ) || failure is ApiResult.Forbidden || failure is ApiResult.LegalAcceptanceRequired
+        // A processing cap has no automatic reset time. Keep the encrypted
+        // original and wait for a member retry after review instead of looping.
+        || (failure is ApiResult.RateLimited && failure.retryAfterSeconds == null)
     return MediaReconciliationIssue(failure.message, failure.supportReference, !needsMemberAction)
 }
 

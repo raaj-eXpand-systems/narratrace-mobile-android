@@ -155,6 +155,29 @@ class NarratraceApiClientTest {
     }
 
     @Test
+    fun `processing cap and unavailable envelopes retain safe message without sign in or retry timer`() {
+        for ((status, code) in listOf(429 to "RATE_LIMITED", 503 to "SERVICE_UNAVAILABLE")) {
+            val message = "AI processing is paused. Your saved content and Nia remain available."
+            val body = """{"error":{"code":"$code","message":"$message"},"meta":{"apiVersion":"1","requestId":"cap-test","supportId":"cap-support"}}"""
+            val response = Response.Builder()
+                .request(Request.Builder().url("https://www.narratrace.io/api/v1/interviews/example/responses").build())
+                .protocol(Protocol.HTTP_1_1).code(status).message("Processing paused")
+                .body(body.toResponseBody("application/json".toMediaType())).build()
+            val result = client("https://www.narratrace.io").decode(response, serializer<Profile>())
+            assertTrue(result is ApiResult.Failure)
+            assertEquals(message, (result as ApiResult.Failure).message)
+            assertEquals("cap-support", result.supportReference)
+            if (status == 429) {
+                assertTrue(result is ApiResult.RateLimited)
+                assertEquals(null, (result as ApiResult.RateLimited).retryAfterSeconds)
+            } else {
+                assertTrue(result is ApiResult.ServerError)
+                assertEquals(ApiErrorCode.SERVICE_UNAVAILABLE, (result as ApiResult.ServerError).code)
+            }
+        }
+    }
+
+    @Test
     fun `a 401 retains the authentication factor field`() {
         val body = """
             {"error":{"code":"AUTHENTICATION_REQUIRED","message":"Authenticator setup is required.","field":"mfaEnrollment"},

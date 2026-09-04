@@ -74,6 +74,7 @@ import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
@@ -1265,9 +1266,13 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
         item { Button(onClick = { language = if (language == "en") "hi" else "en" }, Modifier.fillMaxWidth()) { Text("Language: ${if (language == "hi") "हिन्दी" else "English"}") } }
         item { Button(onClick = { busy = true; scope.launch { val saved = container.settingsRepository.updateProfile(name, birthYear.toIntOrNull(), language); message = if (saved is FeatureResult.Success) "Profile saved." else (saved as? FeatureResult.Unavailable)?.message; busy = false } }, enabled = !busy && name.trim().isNotEmpty() && birthYearValid, modifier = Modifier.fillMaxWidth()) { Text("Save profile") } }
         item { Text("App appearance", style = MaterialTheme.typography.titleLarge) }
-        items(listOf(NarratraceAppearance.System, NarratraceAppearance.Light, NarratraceAppearance.Dark), key = { it.name }) { appearance -> Button(onClick = { if (container.appearanceStore.save(appearance)) (context as? Activity)?.recreate() }, Modifier.fillMaxWidth()) { Text(appearance.name + if (container.appearanceStore.load() == appearance) " ✓" else "") } }
-        item { Text("Upcoming themes", style = MaterialTheme.typography.titleMedium) }
-        items(listOf(NarratraceAppearance.UpcomingPreview, NarratraceAppearance.ChaiLatte), key = { it.name }) { appearance -> Button(onClick = { if (container.appearanceStore.save(appearance)) (context as? Activity)?.recreate() }, Modifier.fillMaxWidth()) { Text(appearance.name.replace("UpcomingPreview", "Narratrace Blue").replace("ChaiLatte", "Chai Latte") + if (container.appearanceStore.load() == appearance) " ✓" else "") } }
+        items(NarratraceAppearance.entries, key = { it.name }) { appearance ->
+            val chosen = container.appearanceStore.load() == appearance
+            Button(
+                onClick = { if (container.appearanceStore.save(appearance)) (context as? Activity)?.recreate() },
+                modifier = Modifier.fillMaxWidth().semantics { selected = chosen },
+            ) { Text(appearance.displayName + if (chosen) " ✓" else "") }
+        }
         item { Text(MEDIA_INSIGHTS_HEADING, style = MaterialTheme.typography.titleLarge) }
         item { Text("Photo and video insights are off by default. Enable each purpose separately only if you want future media sent for that AI analysis. Turning either off keeps the media usable.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         (mediaAiPreferences as? FeatureResult.Success)?.value?.preferences?.let { prefs ->
@@ -1917,6 +1922,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
     var shareToken by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var confirmNarrativeAgreement by remember { mutableStateOf(false) }
+    var processingMessage by remember { mutableStateOf<String?>(null) }
     var videoMessage by remember { mutableStateOf<String?>(null) }
     val modePreferences = remember(context) { context.getSharedPreferences("interview-modes.v1", android.content.Context.MODE_PRIVATE) }
     var recordingMode by remember(summary.id) { mutableStateOf(modePreferences.getString(summary.id, null)) }
@@ -1929,7 +1935,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
                 it, PendingMediaKind.InterviewVideo, "interview-${UUID.randomUUID()}.${if (mime == "video/quicktime") "mov" else "mp4"}", mime, summary.id,
             ) } }.getOrNull()
             if (item == null) videoMessage = "This video could not be encrypted safely or exceeds the 2 GB limit."
-            else { videoMessage = if (container.mediaRepository.reconcile() == 0) "Video response preserved." else "Video protected on this device and waiting for secure transfer."; refresh++ }
+            else { videoMessage = uploadResultMessage(container, "Video response", container.mediaRepository.reconcile()); refresh++ }
         }
     }
     LaunchedEffect(refresh) {
@@ -1951,9 +1957,19 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
         onDismissRequest = { confirmNarrativeAgreement = false },
         title = { Text("Ask Nia to shape this story?") },
         text = { Text("Nia may organize and lightly polish only what was shared. Nia must not add facts, events, names, places, dates, dialogue, emotions, or conclusions. If there is not enough detail, you will be asked to add another response.") },
-        confirmButton = { Button(onClick = { confirmNarrativeAgreement = false; sending = true; scope.launch { container.mediaRepository.narrative(summary.id, true); sending = false; refresh++ } }) { Text("I agree — create faithful story") } },
+        confirmButton = { Button(onClick = { confirmNarrativeAgreement = false; sending = true; scope.launch { when (val outcome = container.mediaRepository.narrative(summary.id, true)) {
+            is FeatureResult.Success -> { processingMessage = null; refresh++ }
+            is FeatureResult.Unavailable -> processingMessage = outcome.message
+            FeatureResult.AuthenticationRequired -> processingMessage = "Sign in again before processing this interview."
+        }; sending = false } }) { Text("I agree — create faithful story") } },
         dismissButton = { TextButton(onClick = { confirmNarrativeAgreement = false }) { Text("Cancel") } },
     )
+    processingMessage?.let { failure -> AlertDialog(
+        onDismissRequest = { processingMessage = null },
+        title = { Text("Processing unavailable") },
+        text = { Text(failure, Modifier.semantics { liveRegion = LiveRegionMode.Assertive }) },
+        confirmButton = { TextButton(onClick = { processingMessage = null }) { Text("Close") } },
+    ) }
     if (audio) {
         val currentQuestion = (result as? FeatureResult.Success)?.value?.messages?.lastOrNull { it.role == "assistant" }?.content
         AudioCaptureScreen(
@@ -2000,7 +2016,11 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
                     if (recordingMode == "self") {
                         item { OutlinedTextField(response, { response = it.take(4000); key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth(), label = { Text("Your response") }, minLines = 3) }
                         item { Button(onClick = { sending = true; scope.launch {
-                            if (container.mediaRepository.respond(summary.id, response, key) is FeatureResult.Success) { response = ""; key = UUID.randomUUID().toString(); refresh++ }
+                            when (val outcome = container.mediaRepository.respond(summary.id, response, key)) {
+                                is FeatureResult.Success -> { response = ""; key = UUID.randomUUID().toString(); processingMessage = null; refresh++ }
+                                is FeatureResult.Unavailable -> processingMessage = outcome.message
+                                FeatureResult.AuthenticationRequired -> processingMessage = "Sign in again before sending this response."
+                            }
                             sending = false
                         } }, enabled = !sending && response.trim().isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("Send response") } }
                     }

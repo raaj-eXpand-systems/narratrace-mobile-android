@@ -10,6 +10,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MediaAndInterviewRepositoryTest {
+    @Test fun `processing cap keeps queued originals without automatic retry`() {
+        val message = "AI processing is paused. Your saved content and Nia remain available."
+        val issue = reconciliationIssue(ApiResult.RateLimited(message, null, "budget-support"))
+        assertFalse(issue.retryAutomatically)
+        assertEquals(message, issue.message)
+        assertEquals("budget-support", issue.supportReference)
+        assertTrue(reconciliationIssue(ApiResult.RateLimited("Wait", 60, "rate-support")).retryAutomatically)
+    }
+
     @Test fun `guided media stays queued when preservation acknowledgement is missing`() {
         val response = decodeResponse(acknowledgement = null)
 

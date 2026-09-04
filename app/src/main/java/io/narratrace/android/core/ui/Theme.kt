@@ -63,6 +63,41 @@ private val ChaiLatteColors = lightColorScheme(
     outline = Color(0xFF766353), error = Color(0xFF9F293B),
 )
 
+// Shared web tokens adapted to opaque Material surfaces. All foreground and
+// container roles are explicit so Material defaults cannot introduce a new palette.
+private fun storybookColors(dark: Boolean, bg: Long, surface: Long, variant: Long,
+    text: Long, muted: Long, accent: Long, onAccent: Long, border: Long, error: Long,
+): androidx.compose.material3.ColorScheme {
+    val base = if (dark) darkColorScheme() else lightColorScheme()
+    return base.copy(
+        primary = Color(accent), onPrimary = Color(onAccent),
+        primaryContainer = Color(variant), onPrimaryContainer = Color(text),
+        inversePrimary = Color(onAccent),
+        secondary = Color(accent), onSecondary = Color(onAccent),
+        secondaryContainer = Color(variant), onSecondaryContainer = Color(text),
+        tertiary = Color(accent), onTertiary = Color(onAccent),
+        tertiaryContainer = Color(variant), onTertiaryContainer = Color(text),
+        background = Color(bg), onBackground = Color(text),
+        surface = Color(surface), onSurface = Color(text),
+        surfaceVariant = Color(variant), onSurfaceVariant = Color(muted),
+        surfaceTint = Color(accent), inverseSurface = Color(text), inverseOnSurface = Color(bg),
+        surfaceBright = Color(surface), surfaceDim = Color(bg),
+        surfaceContainer = Color(surface), surfaceContainerLow = Color(bg),
+        surfaceContainerLowest = Color(bg), surfaceContainerHigh = Color(variant),
+        surfaceContainerHighest = Color(variant),
+        outline = Color(border), outlineVariant = Color(border),
+        error = Color(error), onError = Color(onAccent),
+        errorContainer = Color(variant), onErrorContainer = Color(error),
+    )
+}
+
+internal val DaylightColors = storybookColors(false, 0xFFEAF5E9, 0xFFFFFFFF, 0xFFE8F4EB,
+    0xFF233C37, 0xFF425B4B, 0xFFAA352A, 0xFFFFFFFF, 0xFF5E7B68, 0xFF982F30)
+internal val MarigoldColors = storybookColors(false, 0xFFFDF6EA, 0xFFFFFFFF, 0xFFF5EAD6,
+    0xFF2A2115, 0xFF4A3B22, 0xFFA8391F, 0xFFFFFFFF, 0xFF87653F, 0xFF982F30)
+internal val LamplightColors = storybookColors(true, 0xFF241A2B, 0xFF31243A, 0xFF3C2C46,
+    0xFFF8EFE3, 0xFFD6C3B2, 0xFFE8A33D, 0xFF241A2B, 0xFFA184A5, 0xFFFFAAA2)
+
 // Narratrace's primary storytellers are frequently older adults. Keep every
 // body, supporting-label, and compact-title token at 16sp or larger while
 // preserving Android's user-selected font scaling.
@@ -82,6 +117,18 @@ enum class NarratraceAppearance {
     Dark,
     UpcomingPreview,
     ChaiLatte,
+    Daylight,
+    Marigold,
+    Lamplight;
+
+    val displayName: String get() = when (this) {
+        UpcomingPreview -> "Narratrace Blue"
+        ChaiLatte -> "Chai Latte"
+        Daylight -> "Narratrace Daylight"
+        Marigold -> "Narratrace Marigold"
+        Lamplight -> "Narratrace Lamplight"
+        else -> name
+    }
 }
 
 @Composable
@@ -96,6 +143,9 @@ fun NarratraceTheme(
         NarratraceAppearance.Dark -> DarkColors
         NarratraceAppearance.UpcomingPreview -> UpcomingColors
         NarratraceAppearance.ChaiLatte -> ChaiLatteColors
+        NarratraceAppearance.Daylight -> DaylightColors
+        NarratraceAppearance.Marigold -> MarigoldColors
+        NarratraceAppearance.Lamplight -> LamplightColors
     }
     MaterialTheme(
         colorScheme = colors,
