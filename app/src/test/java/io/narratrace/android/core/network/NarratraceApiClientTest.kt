@@ -70,6 +70,19 @@ class NarratraceApiClientTest {
     }
 
     @Test
+    fun `signed media reader rejects provider and attacker URLs before any request`() = runTest {
+        for (unsafe in listOf(
+            "https://lh3.googleusercontent.com/media/private=d",
+            "https://project.supabase.co.evil.example/storage/v1/object/sign/Uploads/private",
+            "https://user:password@project.supabase.co/storage/v1/object/sign/Uploads/private",
+            "http://project.supabase.co/storage/v1/object/sign/Uploads/private",
+            "https://project.supabase.co:444/storage/v1/object/sign/Uploads/private",
+            "https://project.supabase.co/not-storage/private",
+        )) assertEquals(null, client().getSignedStorage(unsafe))
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
     fun `fails closed when no API origin is configured`() = runTest {
         val result = client(baseUrl = "").get("/api/v1/profile", serializer<Profile>())
         assertTrue(result is ApiResult.Unreadable)
