@@ -7,6 +7,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Protocol
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.After
@@ -25,6 +26,26 @@ private data class Profile(val email: String, val displayName: String? = null)
  * changes, these fail — which is the point.
  */
 class NarratraceApiClientTest {
+
+    @Test
+    fun `protected transport does not follow redirects or replay request bodies`() {
+        val destination = MockWebServer()
+        destination.start()
+        try {
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(307)
+                .addHeader("Location", destination.url("/unexpected")))
+            destination.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200))
+            val request = Request.Builder().url(server.url("/upload"))
+                .post("private-content".toRequestBody()).build()
+            NarratraceApiClient.defaultHttpClient().newCall(request).execute().use {
+                assertEquals(307, it.code)
+            }
+            assertEquals(0, destination.requestCount)
+            assertEquals(1, server.requestCount)
+        } finally {
+            destination.shutdown()
+        }
+    }
 
     @Test
     fun `protected-content hash header accepts only lowercase sha256`() {
@@ -211,6 +232,25 @@ class NarratraceApiClientTest {
         assertEquals("mfaEnrollment", result.fieldName)
         assertEquals(ApiErrorCode.AUTHENTICATION_REQUIRED, result.code)
         assertEquals("support-123", result.supportReference)
+    }
+
+    @Test
+    fun `tenant Letter denial stays a failure and never decodes supplied private content`() {
+        for ((status, code) in listOf(403 to "FORBIDDEN", 404 to "RESOURCE_NOT_FOUND")) {
+            val body = """{"error":{"code":"$code","message":"Letter not found."},
+                "data":{"letters":[]},"meta":{"apiVersion":"1","requestId":"tenant-test","supportId":"tenant-support"}}"""
+            val response = Response.Builder()
+                .request(Request.Builder().url("https://www.narratrace.io/api/v1/letters/private-id").build())
+                .protocol(Protocol.HTTP_1_1).code(status).message("Denied")
+                .body(body.toResponseBody("application/json".toMediaType())).build()
+            val result = client("https://www.narratrace.io").decode(
+                response, serializer<io.narratrace.android.core.letters.LetterList>(),
+            )
+            assertTrue(result is ApiResult.Failure)
+            assertEquals("Letter not found.", (result as ApiResult.Failure).message)
+            assertEquals("tenant-support", result.supportReference)
+            assertTrue(result !is ApiResult.Unauthorized)
+        }
     }
 
     @Test

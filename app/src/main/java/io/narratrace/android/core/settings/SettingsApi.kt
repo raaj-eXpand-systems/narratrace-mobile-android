@@ -26,11 +26,37 @@ import kotlinx.serialization.serializer
     @SerialName("photo_ai_insights_enabled") val photoAiInsightsEnabled: Boolean = false,
     @SerialName("video_ai_insights_enabled") val videoAiInsightsEnabled: Boolean = false,
 )
-@Serializable data class MediaAiPreferencesResponse(val preferences: MediaAiPreferences)
+@Serializable data class MediaAiPreferencesResponse(
+    val preferences: MediaAiPreferences,
+    val consentVersions: Map<String, String> = emptyMap(),
+    val consentCopy: Map<String, String> = emptyMap(),
+) {
+    fun disclosure(key: String): MediaAiDisclosure? {
+        val kind = mediaAiKind(key) ?: return null
+        val version = consentVersions[kind]?.takeIf { it.isNotBlank() } ?: return null
+        val copy = consentCopy[kind]?.takeIf { it.isNotBlank() } ?: return null
+        return MediaAiDisclosure(kind, version, copy)
+    }
+}
+data class MediaAiDisclosure(val kind: String, val version: String, val copy: String)
+internal fun mediaAiKind(key: String): String? = when (key) {
+    "photo_ai_insights_enabled" -> "photo"
+    "video_ai_insights_enabled" -> "video"
+    else -> null
+}
 @Serializable private data class MediaAiPreferencePatch(
     @SerialName("photo_ai_insights_enabled") val photoAiInsightsEnabled: Boolean? = null,
     @SerialName("video_ai_insights_enabled") val videoAiInsightsEnabled: Boolean? = null,
+    val consentVersions: Map<String, String>? = null,
 )
+internal fun mediaAiPreferenceBody(key: String, value: Boolean, disclosure: MediaAiDisclosure?): String? {
+    val kind = mediaAiKind(key) ?: return null
+    if (value && (disclosure?.kind != kind || disclosure.version.isBlank() || disclosure.copy.isBlank())) return null
+    val versions = if (value) mapOf(kind to disclosure!!.version) else null
+    return NarratraceJson.encodeToString(if (kind == "photo")
+        MediaAiPreferencePatch(photoAiInsightsEnabled = value, consentVersions = versions)
+    else MediaAiPreferencePatch(videoAiInsightsEnabled = value, consentVersions = versions))
+}
 @Serializable private data class PreferencePatch(
     @SerialName("processing_ready") val processingReady: Boolean? = null,
     val invitations: Boolean? = null, val letters: Boolean? = null,
@@ -45,9 +71,10 @@ class SettingsApi(private val client: NarratraceApiClient) {
     suspend fun updateProfile(name: String, birthYear: Int?, language: String, token: String): ApiResult<ProfileResponse> = client.patch("/api/v1/profile", NarratraceJson.encodeToString(ProfileInput(name, birthYear, language)), serializer<ProfileResponse>(), token)
     suspend fun preferences(token: String): ApiResult<PreferencesResponse> = client.get("/api/v1/mobile/notification-preferences", serializer<PreferencesResponse>(), token)
     suspend fun mediaAiPreferences(token: String): ApiResult<MediaAiPreferencesResponse> = client.get("/api/v1/mobile/media-ai-preferences", serializer<MediaAiPreferencesResponse>(), token)
-    suspend fun updateMediaAiPreference(key: String, value: Boolean, token: String): ApiResult<MediaAiPreferencesResponse> {
-        val body = if (key == "photo_ai_insights_enabled") MediaAiPreferencePatch(photoAiInsightsEnabled = value) else MediaAiPreferencePatch(videoAiInsightsEnabled = value)
-        return client.patch("/api/v1/mobile/media-ai-preferences", NarratraceJson.encodeToString(body), serializer<MediaAiPreferencesResponse>(), token)
+    suspend fun updateMediaAiPreference(key: String, value: Boolean, disclosure: MediaAiDisclosure?, token: String): ApiResult<MediaAiPreferencesResponse> {
+        val body = mediaAiPreferenceBody(key, value, disclosure)
+            ?: return ApiResult.Unreadable(reason = "Review the current media AI disclosure before enabling insights.")
+        return client.patch("/api/v1/mobile/media-ai-preferences", body, serializer<MediaAiPreferencesResponse>(), token)
     }
     suspend fun updatePreference(key: String, value: Boolean, token: String): ApiResult<PreferencesResponse> {
         val body = when (key) {

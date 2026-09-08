@@ -8,6 +8,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LettersContractTest {
+    @Test fun `creator private archive accepts an empty server authorized Letter list`() {
+        val response = NarratraceJson.decodeFromString<LetterList>("""{"letters":[],"future":"safe"}""")
+        assertTrue(response.letters.isEmpty())
+    }
+
+    @Test fun `verified non-owner cannot render scheduled Letter content before server unlock`() {
+        val response = NarratraceJson.decodeFromString<LetterDetailResponse>("""{"letter":{
+          "id":"00000000-0000-4000-8000-000000000001","recipientName":"Maya","subject":"For later",
+          "unlockAt":"2027-01-01T00:00:00Z","delivered":false,"recipientVerified":true,
+          "deliveryState":"scheduled","createdAt":"2026-08-11T00:00:00Z","hasAudio":false,"isOwner":false,
+          "sharedDeliveryManaged":true,"canCancel":false,"unlocked":false,"body":"must stay hidden"
+        }}""")
+        assertFalse(response.letter.canDisplayContent())
+        assertNull(response.letter.recipientEmail)
+        assertTrue(response.letter.copy(unlocked = true, delivered = true, deliveryState = "delivered").canDisplayContent())
+    }
+
     @Test fun `letter detail preserves locked body semantics`() {
         val response = NarratraceJson.decodeFromString<LetterDetailResponse>("""{"letter":{
           "id":"00000000-0000-4000-8000-000000000001","recipientName":"Maya","recipientEmail":"maya@example.com",

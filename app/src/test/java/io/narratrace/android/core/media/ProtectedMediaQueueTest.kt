@@ -69,6 +69,19 @@ class ProtectedMediaQueueTest {
         assertNull(queue.enqueue(byteArrayOf(1), PendingMediaKind.StandaloneAudio, "../a.m4a", "audio/mp4"))
     }
 
+    @Test fun `rejects media exceeding the private Uploads bucket ceiling without staging data`() {
+        val directory = Files.createTempDirectory("media-size-limit").toFile()
+        try {
+            val queue = ProtectedMediaQueue(directory, cipher)
+            assertEquals(52_428_800, ProtectedMediaQueue.MAX_BYTES)
+            assertNull(queue.enqueue(ByteArray(52_428_801), PendingMediaKind.Photo, "photo.jpg", "image/jpeg"))
+            assertTrue(queue.items().isEmpty())
+            assertTrue(directory.listFiles().orEmpty().isEmpty())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun `chunked video is encrypted and supports resumable offset reads`() {
         val directory = Files.createTempDirectory("video-queue").toFile()
         val queue = ProtectedMediaQueue(directory, cipher)

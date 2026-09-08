@@ -331,6 +331,10 @@ class NarratraceApiClient(
             // Mutations must never be replayed silently; retries are the caller's
             // decision and require an idempotency key.
             .retryOnConnectionFailure(false)
+            // Every destination is validated before the request. A redirect must
+            // not bypass that allowlist or replay protected upload bytes.
+            .followRedirects(false)
+            .followSslRedirects(false)
             .build()
     }
 }

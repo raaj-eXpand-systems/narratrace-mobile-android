@@ -24,7 +24,10 @@ class SettingsRepository(private val api: SettingsApi, private val sessions: Ses
         return call { api.updateProfile(clean, birthYear, language, it) }
     }
     suspend fun updatePreference(key: String, value: Boolean) = call { api.updatePreference(key, value, it) }
-    suspend fun updateMediaAiPreference(key: String, value: Boolean) = call { api.updateMediaAiPreference(key, value, it) }
+    suspend fun updateMediaAiPreference(key: String, value: Boolean, disclosure: MediaAiDisclosure? = null) = updateReviewedMediaAiPreference(
+        key, value, disclosure, load = { mediaAiPreferences() },
+        save = { call { api.updateMediaAiPreference(key, value, disclosure, it) } },
+    )
     suspend fun disablePush(osVersion: String) = call { api.installation(BuildConfig.VERSION_NAME, osVersion, null, false, it) }
     suspend fun registerPush(pushToken: String, osVersion: String): FeatureResult<Updated> {
         if (pushToken.isBlank() || pushToken.length > 4096) return FeatureResult.Unavailable("A valid push registration token is required.")
@@ -35,4 +38,21 @@ class SettingsRepository(private val api: SettingsApi, private val sessions: Ses
         var result = block(lease.accessToken); if (result is ApiResult.Unauthorized) { val recovered = sessions.recoverFromUnauthorized(lease.accessToken); if (recovered !is TokenLease.Valid) return FeatureResult.AuthenticationRequired; result = block(recovered.accessToken) }
         return when (result) { is ApiResult.Success -> FeatureResult.Success(result.value); is ApiResult.Unauthorized -> FeatureResult.AuthenticationRequired; is ApiResult.Failure -> FeatureResult.Unavailable(result.message, result.supportReference) }
     }
+}
+
+/** Recheck the exact disclosure the member saw; never silently consent to a newer version. */
+internal suspend fun updateReviewedMediaAiPreference(
+    key: String,
+    value: Boolean,
+    reviewed: MediaAiDisclosure?,
+    load: suspend () -> FeatureResult<MediaAiPreferencesResponse>,
+    save: suspend () -> FeatureResult<MediaAiPreferencesResponse>,
+): FeatureResult<MediaAiPreferencesResponse> {
+    if (mediaAiPreferenceBody(key, value, reviewed) == null) return FeatureResult.Unavailable("Review the current media AI disclosure before enabling insights.")
+    if (value) {
+        val current = load()
+        if (current !is FeatureResult.Success) return current
+        if (current.value.disclosure(key) != reviewed) return FeatureResult.Unavailable("The media AI disclosure changed. Review it again before enabling insights.")
+    }
+    return save()
 }

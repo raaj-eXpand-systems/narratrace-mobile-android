@@ -1250,6 +1250,7 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
     var profile by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.settings.ProfileResponse>?>(null) }
     var preferences by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.settings.PreferencesResponse>?>(null) }
     var mediaAiPreferences by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.settings.MediaAiPreferencesResponse>?>(null) }
+    var mediaAiMessage by remember { mutableStateOf<String?>(null) }
     var legal by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.media.LegalAcceptance>?>(null) }
     var name by remember { mutableStateOf("") }; var birthYear by remember { mutableStateOf("") }; var language by remember { mutableStateOf("en") }
     var busy by remember { mutableStateOf(false) }; var message by remember { mutableStateOf<String?>(null) }
@@ -1281,12 +1282,41 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
                 modifier = Modifier.fillMaxWidth().semantics { selected = chosen },
             ) { Text(appearance.displayName + if (chosen) " ✓" else "") }
         }
-        item { Text(MEDIA_INSIGHTS_HEADING, style = MaterialTheme.typography.titleLarge) }
-        item { Text("Photo and video insights are off by default. Enable each purpose separately only if you want future media sent for that AI analysis. Turning either off keeps the media usable.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        (mediaAiPreferences as? FeatureResult.Success)?.value?.preferences?.let { prefs ->
+        item { Text(MEDIA_INSIGHTS_HEADING, Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge) }
+        item { Text("Photo and video insights are optional and off by default. Review each disclosure before allowing that use. Turning either off keeps your media usable.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        (mediaAiPreferences as? FeatureResult.Success)?.value?.let { state ->
+            val prefs = state.preferences
             val choices = listOf("photo_ai_insights_enabled" to ("Photo insights" to prefs.photoAiInsightsEnabled), "video_ai_insights_enabled" to ("Video insights" to prefs.videoAiInsightsEnabled))
-            items(choices, key = { it.first }) { choice -> Button(onClick = { busy = true; scope.launch { mediaAiPreferences = container.settingsRepository.updateMediaAiPreference(choice.first, !choice.second.second); busy = false } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(choice.second.first + if (choice.second.second) " ✓" else "") } }
+            items(choices, key = { it.first }) { choice ->
+                val disclosure = state.disclosure(choice.first)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(choice.second.first + if (choice.second.second) " · On" else " · Off", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
+                    Text(disclosure?.copy ?: "The current disclosure is unavailable. Reload it before enabling insights.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    fun saveChoice(enabled: Boolean) {
+                        busy = true
+                        scope.launch {
+                            val saved = container.settingsRepository.updateMediaAiPreference(choice.first, enabled, if (enabled) disclosure else null)
+                            mediaAiMessage = when (saved) {
+                                is FeatureResult.Success -> if (enabled) "${choice.second.first} allowed." else "${choice.second.first} turned off."
+                                is FeatureResult.Unavailable -> saved.message
+                                FeatureResult.AuthenticationRequired -> "Sign in again to update media AI choices."
+                            }
+                            mediaAiPreferences = if (saved is FeatureResult.Success) saved else container.settingsRepository.mediaAiPreferences()
+                            busy = false
+                        }
+                    }
+                    if (!choice.second.second) Button(onClick = { saveChoice(true) }, enabled = !busy && disclosure != null, modifier = Modifier.fillMaxWidth()) { Text("Allow ${choice.second.first.lowercase()}") }
+                    androidx.compose.material3.OutlinedButton(onClick = { saveChoice(false) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(if (choice.second.second) "Turn off ${choice.second.first.lowercase()}" else "Keep ${choice.second.first.lowercase()} off") }
+                }
+            }
         }
+        if (mediaAiPreferences !is FeatureResult.Success) item { Text(when (val current = mediaAiPreferences) {
+            is FeatureResult.Unavailable -> current.message
+            FeatureResult.AuthenticationRequired -> "Sign in again to review media AI choices."
+            else -> "Loading media AI choices…"
+        }, Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+        item { TextButton(onClick = { busy = true; scope.launch { mediaAiPreferences = container.settingsRepository.mediaAiPreferences(); busy = false } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Reload media AI disclosures") } }
+        mediaAiMessage?.let { item { Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Polite }) } }
         item { Text("Sensitive story information", style = MaterialTheme.typography.titleMedium) }
         item { Text("This separate optional consent allows Nia to process story details that may reveal sensitive information. Withdrawing it stops future AI interview processing; preserved content remains available.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { Button(onClick = { busy = true; scope.launch {
