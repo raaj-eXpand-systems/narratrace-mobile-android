@@ -1,6 +1,10 @@
 package io.narratrace.android.core.auth
 
 import io.narratrace.android.core.network.ApiResult
+import io.narratrace.android.core.network.NarratraceJson
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -10,6 +14,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HostedAuthenticationContractTest {
+    @Test fun `serialized start and exchange include the server required platform`() {
+        val installation = "123e4567-e89b-42d3-a456-426614174000"
+        val start = NarratraceJson.encodeToString(HostedAuthStartRequest(
+            installationId = installation, appVersion = "1.0.0", codeChallenge = "c".repeat(43),
+        ))
+        val exchange = NarratraceJson.encodeToString(HostedAuthExchangeRequest(
+            transactionId = installation, code = "c".repeat(43), codeVerifier = "v".repeat(43),
+            installationId = installation, appVersion = "1.0.0",
+        ))
+        for (body in listOf(start, exchange)) {
+            assertEquals("android", NarratraceJson.parseToJsonElement(body).jsonObject["platform"]?.jsonPrimitive?.content)
+        }
+    }
+
     @Test fun `start creates S256 PKCE and stores only encrypted pending protocol state`() = runTest {
         val gateway = FakeHostedGateway()
         val blob = MemoryBlobStore()

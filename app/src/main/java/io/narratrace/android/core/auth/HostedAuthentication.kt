@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.serializer
 
@@ -23,7 +25,10 @@ private val OPAQUE_TOKEN = Regex("^[A-Za-z0-9_-]{43}$")
 private val UUID = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", RegexOption.IGNORE_CASE)
 
 @Serializable
+@OptIn(ExperimentalSerializationApi::class)
 internal data class HostedAuthStartRequest(
+    // Required on the wire even though every Android caller uses this default.
+    @EncodeDefault
     val platform: String = "android",
     val installationId: String,
     val appVersion: String,
@@ -40,12 +45,13 @@ internal data class HostedAuthStartResponse(
 )
 
 @Serializable
+@OptIn(ExperimentalSerializationApi::class)
 internal data class HostedAuthExchangeRequest(
     val transactionId: String,
     val code: String,
     val codeVerifier: String,
     val installationId: String,
-    val platform: String = "android",
+    @EncodeDefault val platform: String = "android",
     val appVersion: String,
     val osVersion: String? = null,
 )
