@@ -47,10 +47,10 @@ class MediaAndInterviewContractTest {
         assertFalse(requiredLegalAcceptanceComplete(accepted.copy(privacyAcknowledged = false)))
     }
 
-    @Test fun `customer policy links use the canonical public routes`() {
-        assertEquals("https://getnarratrace.com/terms", TERMS_POLICY_URL)
-        assertEquals("https://getnarratrace.com/privacy", PRIVACY_POLICY_URL)
-        assertEquals("https://getnarratrace.com/cookies", COOKIE_POLICY_URL)
+    @Test fun `customer policy links use the canonical mirror without purchase navigation`() {
+        assertEquals("https://www.narratrace.io/terms?client=android", TERMS_POLICY_URL)
+        assertEquals("https://www.narratrace.io/privacy?client=android", PRIVACY_POLICY_URL)
+        assertEquals("https://www.narratrace.io/cookies?client=android", COOKIE_POLICY_URL)
     }
 
     @Test fun `native legal and media headings use current customer language`() {

@@ -81,6 +81,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.browser.customtabs.CustomTabsIntent
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -148,9 +149,9 @@ import java.io.InputStream
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 
-internal const val TERMS_POLICY_URL = "https://getnarratrace.com/terms"
-internal const val PRIVACY_POLICY_URL = "https://getnarratrace.com/privacy"
-internal const val COOKIE_POLICY_URL = "https://getnarratrace.com/cookies"
+internal const val TERMS_POLICY_URL = "https://www.narratrace.io/terms?client=android"
+internal const val PRIVACY_POLICY_URL = "https://www.narratrace.io/privacy?client=android"
+internal const val COOKIE_POLICY_URL = "https://www.narratrace.io/cookies?client=android"
 internal const val LEGAL_REVIEW_HEADING = "Review Narratrace Terms"
 internal const val MEDIA_INSIGHTS_HEADING = "Nia’s media insights"
 internal fun shouldRefreshPhotoInsights(mediaKind: String, enabled: Boolean) =
@@ -161,7 +162,7 @@ internal fun visibleMediaClarifyingQuestions(mediaKind: String, enabled: Boolean
 internal const val LEGAL_CHANGE_SUMMARY = "The Terms and Privacy Policy clarify that Stripe-hosted Checkout collects and stores payment credentials and checkout addresses, while Narratrace receives limited transaction and billing records."
 internal const val NIA_DEFINITION = "Nia is the name Narratrace gives its AI assistant and AI-supported story companion. References to Nia mean Narratrace’s AI features, not a person."
 internal const val ADULT_ACCOUNT_NOTICE = "Narratrace accounts are intended only for people 18 years of age or older."
-internal const val ACCOUNT_CLOSURE_URL = "https://www.narratrace.io/account#closure"
+internal const val ACCOUNT_CLOSURE_URL = "https://www.narratrace.io/account?client=android#closure"
 internal const val PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=io.narratrace.android"
 
 private fun InputStream.readBounded(maximum: Int): ByteArray? {
@@ -500,12 +501,12 @@ private fun RestrictedLifecycleScreen(
         signal.appealStatus.takeIf { it in setOf("available", "submitted") }?.let { Text("Appeal status: ${it.replace('_', ' ')}", Modifier.padding(top = 8.dp)) }
         signal.safeAppealUrl()?.let { appealUrl ->
             Button(
-                { context.startActivity(Intent(Intent.ACTION_VIEW, appealUrl.toUri())) },
+                { context.startActivity(Intent(Intent.ACTION_VIEW, appealUrl.toHttpUrl().newBuilder().setQueryParameter("client", "android").build().toString().toUri())) },
                 Modifier.fillMaxWidth().padding(top = 12.dp),
             ) { Text(if (signal.appealStatus == "submitted") "View appeal status" else "Submit an appeal") }
         }
         Button({ context.startActivity(Intent(Intent.ACTION_VIEW, ACCOUNT_CLOSURE_URL.toUri())) }, Modifier.fillMaxWidth().padding(top = 20.dp)) { Text("Open account and recovery controls") }
-        if (signal.state != "closure_pending") Button({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account#export".toUri())) }, Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Export my data") }
+        if (signal.state != "closure_pending") Button({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account?client=android#export".toUri())) }, Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Export my data") }
         TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, TERMS_POLICY_URL.toUri())) }, Modifier.fillMaxWidth()) { Text("Terms of Service") }
         TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, PRIVACY_POLICY_URL.toUri())) }, Modifier.fillMaxWidth()) { Text("Privacy and data-rights information") }
         TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, COOKIE_POLICY_URL.toUri())) }, Modifier.fillMaxWidth()) { Text("Cookie Policy") }
@@ -520,7 +521,7 @@ private fun LifecycleCheckFailure(message: String, retry: () -> Unit) {
         Text("Account status unavailable", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
         Text(message, Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.error)
         Button(retry, Modifier.fillMaxWidth().padding(top = 20.dp)) { Text("Try again") }
-        TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account".toUri())) }, Modifier.fillMaxWidth()) { Text("Account and privacy controls") }
+        TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account?client=android".toUri())) }, Modifier.fillMaxWidth()) { Text("Account and privacy controls") }
     }
 }
 
@@ -549,7 +550,7 @@ private fun RequiredLegalGate(container: AppContainer, content: @Composable () -
                 }
                 is FeatureResult.Success -> Unit
             }
-            if (result != null) TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account".toUri())) }) { Text("Account and privacy controls") }
+            if (result != null) TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account?client=android".toUri())) }) { Text("Account and privacy controls") }
         }
         return
     }
@@ -578,7 +579,7 @@ private fun RequiredLegalGate(container: AppContainer, content: @Composable () -
         }
         item { Text("You can still use account, export, cancellation, deletion, and privacy controls without making these choices.", style = MaterialTheme.typography.bodySmall) }
         item { TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, COOKIE_POLICY_URL.toUri())) }, Modifier.fillMaxWidth()) { Text("Read Cookie Policy") } }
-        item { TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account".toUri())) }, Modifier.fillMaxWidth()) { Text("Account and privacy controls") } }
+        item { TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account?client=android".toUri())) }, Modifier.fillMaxWidth()) { Text("Account and privacy controls") } }
     }
 }
 
@@ -795,7 +796,7 @@ private fun LegacySignInScreen(container: AppContainer, returning: Boolean) {
                     context.startActivity(
                         Intent(
                             Intent.ACTION_VIEW,
-                            "https://www.narratrace.io/auth/signin?callbackUrl=%2Fauth%2Fmfa".toUri(),
+                            "https://www.narratrace.io/auth/signin?client=android&callbackUrl=%2Fauth%2Fmfa%3Fclient%3Dandroid".toUri(),
                         ),
                     )
                 },
@@ -2485,8 +2486,8 @@ private fun WebResourcesScreen(modifier: Modifier, close: () -> Unit) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { IconButton(close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }; Text("Web resources", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
         Text("Downloads stay on the web", style = MaterialTheme.typography.titleLarge); Text("The Android app never generates, receives, caches, saves, or shares downloadable files.")
-        Button({ context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.narratrace.io/keepsake"))) }, Modifier.fillMaxWidth()) { Text("Open Keepsake books on the web") }
-        Button({ context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.narratrace.io/account"))) }, Modifier.fillMaxWidth()) { Text("Open downloadable resources on the web") }
+        Button({ context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.narratrace.io/keepsake?client=android"))) }, Modifier.fillMaxWidth()) { Text("Open Keepsake books on the web") }
+        Button({ context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.narratrace.io/account?client=android"))) }, Modifier.fillMaxWidth()) { Text("Open downloadable resources on the web") }
         Text("Any generation or download on the authenticated website remains your explicit choice.", style = MaterialTheme.typography.bodySmall)
     }
 }

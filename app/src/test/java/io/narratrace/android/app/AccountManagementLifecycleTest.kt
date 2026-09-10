@@ -24,7 +24,7 @@ class AccountManagementLifecycleTest {
     fun `account closure link is direct and purchase calls to action are absent`() {
         val source = File("src/main/java/io/narratrace/android/app/NarratraceApp.kt").readText()
 
-        assertEquals("https://www.narratrace.io/account#closure", ACCOUNT_CLOSURE_URL)
+        assertEquals("https://www.narratrace.io/account?client=android#closure", ACCOUNT_CLOSURE_URL)
         assertFalse(source.contains("/subscribe"))
         assertFalse(source.contains("Review Narratrace plans"))
         assertFalse(source.contains("purchase a plan"))
