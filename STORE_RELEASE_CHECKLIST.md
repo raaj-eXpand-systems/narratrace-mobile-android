@@ -48,3 +48,16 @@ doppler run -- ./gradlew verifyStoreRelease bundleRelease
 - Provide privacy-policy and account-deletion URLs.
 - Upload first to an internal testing track and complete the device matrix before promotion.
 - Retain mapping and native-symbol outputs for the exact released bundle.
+
+
+## 10 September 2026 — integrated check-in verification
+
+Owner explicitly included all existing Android and iOS uncommitted work in this check-in. This record covers native source integration, not Play submission or physical-device certification.
+
+Security gate: reviewed fresh explicit-sign-in installation binding and encrypted pending PKCE transaction retention; callback state, HTTPS destination, token/session expiry and server authorization remain enforced. Signed media accepts only HTTPS Supabase signed-object or signed-render paths; tests cover rejected transport and host forms. Onboarding preferences control presentation only. Capture remains behind authentication and server eligibility. No credentials, new dependency, backend resource or executable downloaded policy added. Existing secure storage and protected networking regressions pass.
+
+Code Quality gate: 181 unit tests pass with build cache disabled and tasks rerun; lintDebug, assembleDebug and assembleRelease pass. Lint reports zero errors, 21 warnings and 16 hints (SDK compatibility advice, style/deprecation and image resource placement); no fatal issue. Old cached Kotlin interface bytecode initially caused four errors, resolved by a fresh test compilation, not by changing authentication behavior. Onboarding emulator results are recorded below after completion. Store checklist above remains applicable.
+
+Cross-platform reconciliation: both apps retain logo/tagline before photographic welcome, uncropped images, introduction before new-user flow, sign-in before capture, shared bottom/menu destination names, Daylight-only artwork, System/Light/Dark plus More themes, fresh account-switch binding, and a clearly labelled Library illustration hidden until photo availability is verified and hidden when a customer photo exists. The example photo matches the authoritative web asset. Server contracts remain additive and backward-compatible; Partner remains web-only. iOS signed simulator suite passes all 105 tests. QA/OPS follow-up includes authenticated device sign-in, capture and TalkBack/VoiceOver acceptance; no specialist agents activated or store release claimed.
+
+Final Pixel 8 / Android 16 emulator run: all seven onboarding tests pass, including launch logo ordering, new/returning journeys, skip, purpose selection, recipient Wall navigation and readable Library sample. The prior recipient assertion expected Library; reconciled it to Wall, matching both native implementations. Debug and Release APKs contain no Markdown. Security and Code Quality gates pass for source check-in; authenticated physical-device and store acceptance remain separate.

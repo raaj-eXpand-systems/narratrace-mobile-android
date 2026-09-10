@@ -128,10 +128,7 @@ class NarratraceApiClient(
     suspend fun getSignedStorage(url: String, maximumBytes: Int = 50 * 1024 * 1024): ByteArray? =
         withContext(Dispatchers.IO) {
             val parsed = url.toHttpUrlOrNull() ?: return@withContext null
-            if (parsed.scheme != "https" || parsed.username.isNotEmpty() || parsed.password.isNotEmpty() ||
-                parsed.port != 443 || !parsed.host.endsWith(".supabase.co") ||
-                !parsed.encodedPath.startsWith("/storage/v1/object/sign/")
-            ) return@withContext null
+            if (!isAllowedSignedStorageURL(url)) return@withContext null
             val request = Request.Builder().url(parsed).get().header("Cache-Control", "no-store").build()
             runCatching { httpClient.newCall(request).await().use { response ->
                 if (!response.isSuccessful) return@use null
@@ -350,4 +347,13 @@ private suspend fun Call.await(): Response = suspendCoroutine { continuation ->
             continuation.resumeWith(Result.failure(e))
         }
     })
+}
+
+
+internal fun isAllowedSignedStorageURL(url: String): Boolean {
+    val parsed = url.toHttpUrlOrNull() ?: return false
+    return parsed.scheme == "https" && parsed.username.isEmpty() && parsed.password.isEmpty() &&
+        parsed.port == 443 && parsed.host.endsWith(".supabase.co") &&
+        (parsed.encodedPath.startsWith("/storage/v1/object/sign/") ||
+            parsed.encodedPath.startsWith("/storage/v1/render/image/sign/"))
 }

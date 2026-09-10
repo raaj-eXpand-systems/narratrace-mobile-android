@@ -9,9 +9,40 @@ import io.narratrace.android.core.customer.ProductionPools
 import io.narratrace.android.core.customer.StorageSummary
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ProductionLanguageContractTest {
+    @Test fun `library illustration requires verified photo absence`() {
+        val empty = io.narratrace.android.core.media.MediaList(emptyList())
+        assertFalse(shouldShowLibraryIllustration(null))
+        assertFalse(shouldShowLibraryIllustration(io.narratrace.android.core.media.FeatureResult.AuthenticationRequired))
+        assertFalse(shouldShowLibraryIllustration(io.narratrace.android.core.media.FeatureResult.Unavailable("Unavailable", "")))
+        assertTrue(shouldShowLibraryIllustration(io.narratrace.android.core.media.FeatureResult.Success(empty)))
+        val photo = io.narratrace.android.core.media.MediaSummary("photo", "photo", "My photo", "preserved", createdAt = "2026-09-09")
+        assertFalse(shouldShowLibraryIllustration(io.narratrace.android.core.media.FeatureResult.Success(empty.copy(media = listOf(photo)))))
+        assertTrue(shouldShowLibraryIllustration(io.narratrace.android.core.media.FeatureResult.Success(empty.copy(media = listOf(photo.copy(kind = "audio"))))))
+        assertFalse(shouldShowLibraryIllustration(io.narratrace.android.core.media.FeatureResult.Success(empty.copy(media = List(1000) { photo.copy(kind = "audio") }))))
+    }
+
+    @Test
+    fun `account allowance summary preserves per storyteller limits and counts shared capacity once`() {
+        val account = productionAccount(listOf(
+            productionArchive("maya", "Maya", photos = 0, audio = 60, video = 0),
+            productionArchive("alex", "Alex", photos = 20, audio = 0, video = 0),
+        ), ProductionPools(audioSeconds = allowance(3600)))
+        val labels = accountAllowanceLabels(account)
+        assertTrue(labels.contains("Maya" to "Photos: 0 of 0 remaining"))
+        assertTrue(labels.contains("Alex" to "Photos: 20 of 20 remaining"))
+        assertEquals(1, labels.count { it.first == "Shared allowance" })
+        assertTrue(labels.contains("Letters" to "Available with your plan"))
+        assertFalse(labels.any { it.second.contains(" B") || it.second.contains("GB") })
+        val restricted = accountAllowanceLabels(account.copy(capabilities = account.capabilities.copy(captureVideo = false, createLetters = false)))
+        assertFalse(restricted.any { it.second.startsWith("Video:") })
+        assertTrue(restricted.contains("Video" to "Not included in your current access"))
+        assertTrue(restricted.contains("Letters" to "Not included in your current access"))
+    }
+
     @Test
     fun `customer visible android surfaces do not use beta positioning`() {
         val customerSurfaceFiles = sequenceOf(

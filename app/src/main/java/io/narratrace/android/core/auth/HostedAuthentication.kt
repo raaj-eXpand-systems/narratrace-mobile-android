@@ -228,7 +228,7 @@ internal class HostedAuthenticationCoordinator(
     val event: StateFlow<HostedAuthEvent> = _event.asStateFlow()
 
     suspend fun start(): HostedAuthStartResult {
-        val installationId = installationIdProvider.installationId()
+        val installationId = installationIdProvider.newSignInInstallationId()
             ?: return failStart("Narratrace could not prepare secure sign-in on this device.")
         val verifier = ByteArray(32).also(random::nextBytes).base64Url()
         val challenge = MessageDigest.getInstance("SHA-256").digest(verifier.encodeToByteArray()).base64Url()

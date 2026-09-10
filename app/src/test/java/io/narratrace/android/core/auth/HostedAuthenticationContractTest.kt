@@ -14,6 +14,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HostedAuthenticationContractTest {
+    @Test fun `real installation bindings do not reuse a prior account sign in`() {
+        val identities = AppInstallationIdentity()
+        val first = identities.newSignInInstallationId()
+        val second = identities.newSignInInstallationId()
+        assertEquals(first, java.util.UUID.fromString(first).toString())
+        assertFalse(first == second)
+    }
+
+    @Test fun `new sign in gets a new binding while browser return reuses the protected pending binding`() = runTest {
+        val gateway = FakeHostedGateway()
+        val blob = MemoryBlobStore()
+        var allocations = 0
+        val provider = InstallationIdProvider {
+            allocations++
+            "123e4567-e89b-42d3-a456-42661417400$allocations"
+        }
+        val first = coordinator(gateway, blob, provider = provider)
+        first.start()
+        val firstBinding = gateway.startRequest!!.installationId
+        // Recreating the coordinator models process death while the browser is open.
+        val restarted = coordinator(gateway, blob, provider = provider)
+        restarted.handleCallback("$HOSTED_AUTH_CALLBACK?code=${"c".repeat(43)}&state=${gateway.transactionId}")
+        assertEquals(firstBinding, gateway.exchangeRequest!!.installationId)
+        assertEquals(1, allocations)
+        restarted.start()
+        assertEquals(2, allocations)
+        assertFalse(firstBinding == gateway.startRequest!!.installationId)
+    }
+
     @Test fun `serialized start and exchange include the server required platform`() {
         val installation = "123e4567-e89b-42d3-a456-426614174000"
         val start = NarratraceJson.encodeToString(HostedAuthStartRequest(
@@ -97,9 +126,10 @@ class HostedAuthenticationContractTest {
         gateway: FakeHostedGateway,
         blob: MemoryBlobStore = MemoryBlobStore(),
         adopter: SessionAdopter = SessionAdopter { _, _ -> true },
+        provider: InstallationIdProvider = InstallationIdProvider { "123e4567-e89b-42d3-a456-426614174000" },
     ) = HostedAuthenticationCoordinator(
         gateway = gateway,
-        installationIdProvider = InstallationIdProvider { "123e4567-e89b-42d3-a456-426614174000" },
+        installationIdProvider = provider,
         pendingStore = PendingHostedAuthStore(ReverseCipher, blob),
         sessionAdopter = adopter,
         appVersion = "1.0.0",

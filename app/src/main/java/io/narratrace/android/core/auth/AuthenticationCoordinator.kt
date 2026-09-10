@@ -34,7 +34,7 @@ class AuthenticationCoordinator(
         if (normalizedInviteCode.isBlank()) {
             return SignInResult.Failed("Enter your invitation code to continue.")
         }
-        val installationId = installationIdProvider.installationId()
+        val installationId = installationIdProvider.newSignInInstallationId()
             ?: return SignInResult.Failed("Narratrace could not prepare secure sign-in on this device.")
         val challenge = when (val result = gateway.challenge()) {
             is ApiResult.Success -> result.value

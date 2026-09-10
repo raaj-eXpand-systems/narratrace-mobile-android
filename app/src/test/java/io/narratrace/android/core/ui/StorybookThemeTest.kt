@@ -13,7 +13,7 @@ class StorybookThemeTest {
     }
 
     @Test fun `storybook material text and controls meet AA across container surfaces`() {
-        for (scheme in listOf(DaylightColors, MarigoldColors, LamplightColors)) {
+        for (scheme in listOf(DaylightColors, MarigoldColors, LamplightColors, LightColors, DarkColors)) {
             for (surface in listOf(scheme.background, scheme.surface, scheme.surfaceVariant,
                 scheme.surfaceContainer, scheme.surfaceContainerLow, scheme.surfaceContainerHigh,
                 scheme.surfaceContainerHighest, scheme.surfaceContainerLowest)) {

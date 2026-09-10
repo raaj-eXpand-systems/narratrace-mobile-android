@@ -1,5 +1,6 @@
 package io.narratrace.android.app
 
+import io.narratrace.android.R
 import android.Manifest
 import android.app.Activity
 import android.os.Build
@@ -17,6 +18,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Row
@@ -34,11 +37,18 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MailOutline
+import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -60,11 +70,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.platform.LocalContext
@@ -194,7 +204,7 @@ internal fun productionCaptureAvailability(account: AccountSummary, selectedArch
     )
 }
 
-private fun Long.durationAllowanceLabel(): String {
+internal fun Long.durationAllowanceLabel(): String {
     val hours = this / 3_600
     val minutes = (this % 3_600) / 60
     return when {
@@ -261,7 +271,10 @@ private fun ProductionCaptureTargetCard(
 @Composable
 fun NarratraceApp(container: AppContainer) {
     var onboarded by remember { mutableStateOf(container.onboardingStore.completed()) }
-    if (!onboarded) { OnboardingScreen { if (container.onboardingStore.complete()) onboarded = true }; return }
+    if (!onboarded) {
+        OnboardingScreen { newUser -> if (container.onboardingStore.complete(newUser)) onboarded = true }
+        return
+    }
     val authState by container.sessionManager.state.collectAsStateWithLifecycle()
     var runtimeResolution by remember { mutableStateOf<RuntimeResolution?>(null) }
     var runtimeRefresh by remember { mutableIntStateOf(0) }
@@ -370,21 +383,6 @@ private fun RuntimeBlockedScreen(
         }
         TextButton(retry, Modifier.fillMaxWidth()) { Text("Check again") }
         signOut?.let { TextButton(it, Modifier.fillMaxWidth()) { Text("Sign out on this device") } }
-    }
-}
-
-@Composable private fun OnboardingScreen(complete: () -> Unit) {
-    var page by remember { mutableStateOf(0) }
-    val titles = listOf("Your stories, protected", "Capture in your own way", "Share only when you choose")
-    val messages = listOf(
-        "Narratrace preserves voices, photos, videos, Letters, and written Memories in your private account.",
-        "Write, record, photograph, film, or use a guided interview. Interrupted work can remain encrypted on this device.",
-        "Nothing is shared automatically. Delivery times, family sharing, and public story links always require an explicit choice.",
-    )
-    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
-        Text(titles[page], Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
-        Text(messages[page], Modifier.padding(top = 16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge)
-        Button(onClick = { if (page < 2) page++ else complete() }, Modifier.fillMaxWidth().padding(top = 24.dp)) { Text(if (page < 2) "Continue" else "Get started") }
     }
 }
 
@@ -539,6 +537,23 @@ private fun RequiredLegalGate(container: AppContainer, content: @Composable () -
     LaunchedEffect(refresh) { result = container.mediaRepository.legal() }
     val accepted = (result as? FeatureResult.Success)?.value
     if (accepted != null && requiredLegalAcceptanceComplete(accepted)) { content(); return }
+    if (accepted == null) {
+        Column(Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            when (val current = result) {
+                null -> LoadingMessage("Preparing your account…")
+                FeatureResult.AuthenticationRequired -> Text("Sign in again to continue.", color = MaterialTheme.colorScheme.error)
+                is FeatureResult.Unavailable -> {
+                    Text("Account setup could not be verified.", style = MaterialTheme.typography.titleLarge)
+                    Text(current.message, color = MaterialTheme.colorScheme.error)
+                    Button({ result = null; refresh++ }) { Text("Try again") }
+                }
+                is FeatureResult.Success -> Unit
+            }
+            if (result != null) TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account".toUri())) }) { Text("Account and privacy controls") }
+        }
+        return
+    }
+
     LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text(LEGAL_REVIEW_HEADING, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
         item { Text("$LEGAL_CHANGE_SUMMARY $NIA_DEFINITION Review the current documents before continuing. Privacy acknowledgement confirms receipt of the notice; it is not consent to optional AI processing.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -580,17 +595,29 @@ private fun LegalChoiceCard(title: String, explanation: String, url: String, act
 
 @Composable
 private fun SignInScreen(container: AppContainer, returning: Boolean) {
-    if (container.hostedAuthenticationAvailable()) {
-        HostedSignInScreen(container, returning)
-    } else {
-        LegacySignInScreen(container, returning)
+    var introductionOpen by rememberSaveable { mutableStateOf(false) }
+    if (introductionOpen) {
+        OnboardingScreen { newUser ->
+            if (container.onboardingStore.complete(newUser)) introductionOpen = false
+        }
+        return
+    }
+    Column(Modifier.fillMaxSize().safeDrawingPadding()) {
+        TextButton({ introductionOpen = true }) { Text("Explore Narratrace") }
+        Box(Modifier.weight(1f)) {
+            if (container.hostedAuthenticationAvailable()) {
+                HostedSignInScreen(container, returning)
+            } else {
+                LegacySignInScreen(container, returning)
+            }
+        }
     }
 }
 
 /**
  * Protocol-v1 sign-in is intentionally only a launcher and return-status surface.
  * Invitation, provider authorization, verification, MFA, legal acceptance,
- * onboarding-journey selection, and routing stay in the hosted Narratrace flow.
+ * and account authorization stay in the hosted Narratrace flow. Native welcome steps run only after authentication.
  */
 @Composable
 private fun HostedSignInScreen(container: AppContainer, returning: Boolean) {
@@ -604,20 +631,23 @@ private fun HostedSignInScreen(container: AppContainer, returning: Boolean) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.Start,
     ) {
+        NarratraceWordmark()
+        WelcomeArtwork(io.narratrace.android.R.drawable.welcome_family, Modifier.padding(top = 20.dp, bottom = 24.dp))
         Text(
             if (returning) "Welcome back" else "Every family has stories worth keeping.",
             Modifier.semantics { heading() },
             style = MaterialTheme.typography.headlineLarge,
+            fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
         )
         Text(
-            if (returning) "Continue securely on the Narratrace website to unlock this device."
-            else "Continue securely on the Narratrace website. Invitation, account verification, and setup are completed there.",
+            if (returning) "Sign in to return to your private memories."
+            else "Create your secure account or sign in before capturing your first memory.",
             Modifier.padding(top = 16.dp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyLarge,
         )
         Text(
-            "Narratrace returns only a short-lived sign-in code to this app. Your invitation, email, and account details stay out of the return link.",
+            "Your browser will open for secure sign-in, then bring you back here.",
             Modifier.padding(top = 12.dp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyMedium,
@@ -644,7 +674,7 @@ private fun HostedSignInScreen(container: AppContainer, returning: Boolean) {
             if (starting || event is HostedAuthEvent.Exchanging) {
                 LoadingMessage(if (starting) "Preparing secure sign-in…" else "Finishing secure sign-in…")
             } else {
-                Text(if (event is HostedAuthEvent.AwaitingBrowser) "Start sign-in again" else "Continue securely on the web")
+                Text(if (event is HostedAuthEvent.AwaitingBrowser) "Start sign-in again" else "Continue to secure sign-in")
             }
         }
         if (event is HostedAuthEvent.AwaitingBrowser) {
@@ -840,12 +870,44 @@ private fun LegacySignInScreen(container: AppContainer, returning: Boolean) {
     }
 }
 
-private enum class CustomerTab(val label: String, val icon: ImageVector) {
-    Home("Home", Icons.Default.Home),
-    Capture("Capture", Icons.Default.AddCircle),
-    Library("Library", Icons.Default.PhotoLibrary),
-    People("People", Icons.Default.People),
-    More("More", Icons.Default.MoreHoriz),
+internal enum class CustomerTab(val label: String) {
+    Home("Home"),
+    Capture("Capture"),
+    Stories("Stories"),
+    Library("Media"),
+    Wall("Wall"),
+    People("People"),
+    More("More"),
+}
+
+/** The same destination uses the same themed icon in both navigation surfaces. */
+@Composable
+private fun ArchiveNavigationIcon(destination: String, appearance: NarratraceAppearance, modifier: Modifier) {
+    val artwork = when (destination) {
+        "Home", "Keepsake book" -> R.drawable.nav_capsule
+        "Stories" -> R.drawable.nav_interviews
+        "Media" -> R.drawable.nav_photos
+        "Letters" -> R.drawable.nav_letters
+        "People", "Family", "Wall", "Mosaic" -> R.drawable.nav_family
+        else -> null
+    }
+    if (appearance == NarratraceAppearance.Daylight && artwork != null) {
+        Image(androidx.compose.ui.res.painterResource(artwork), null, modifier, contentScale = androidx.compose.ui.layout.ContentScale.Fit)
+    } else {
+        val icon = when (destination) {
+            "Home" -> Icons.Default.Home
+            "Stories" -> Icons.Default.Mic
+            "Media" -> Icons.Default.PhotoLibrary
+            "Wall", "Mosaic" -> Icons.Default.Dashboard
+            "Letters" -> Icons.Default.MailOutline
+            "People" -> Icons.Default.People
+            "Family" -> Icons.Default.Groups
+            "Keepsake book" -> Icons.Default.MenuBook
+            "Capture" -> Icons.Default.AddCircle
+            else -> Icons.Default.MoreHoriz
+        }
+        Icon(icon, null, modifier)
+    }
 }
 
 @Composable
@@ -855,6 +917,17 @@ private fun AuthenticatedShell(
     onSignOut: () -> Unit,
 ) {
     var selected by remember { mutableStateOf(CustomerTab.Home) }
+    var journeyPending by remember { mutableStateOf(container.onboardingStore.newUserJourneyPending()) }
+    if (journeyPending) {
+        NewUserWelcome { destination ->
+            if (container.onboardingStore.finishJourney()) {
+                selected = destination
+                journeyPending = false
+                onInteraction()
+            }
+        }
+        return
+    }
     var invite by remember { mutableStateOf(container.pendingInvite) }
     val scope = rememberCoroutineScope()
     invite?.let { pending -> AlertDialog(
@@ -865,12 +938,12 @@ private fun AuthenticatedShell(
     ) }
     Scaffold(
         bottomBar = {
-            NavigationBar {
-                CustomerTab.entries.forEach { tab ->
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                listOf(CustomerTab.Home, CustomerTab.Stories, CustomerTab.Library, CustomerTab.People, CustomerTab.More).forEach { tab ->
                     NavigationBarItem(
-                        selected = selected == tab,
+                        selected = selected == tab || (selected in setOf(CustomerTab.Wall, CustomerTab.Capture) && tab == CustomerTab.More),
                         onClick = { selected = tab; onInteraction() },
-                        icon = { androidx.compose.material3.Icon(tab.icon, contentDescription = null) },
+                        icon = { ArchiveNavigationIcon(tab.label, container.appearanceStore.load(), Modifier.size(28.dp)) },
                         label = { Text(tab.label) },
                         colors = NavigationBarItemDefaults.colors(),
                     )
@@ -879,11 +952,19 @@ private fun AuthenticatedShell(
         },
     ) { innerPadding ->
         when (selected) {
-            CustomerTab.Home -> CustomerHomeScreen(container = container, modifier = Modifier.padding(innerPadding))
+            CustomerTab.Home -> CustomerHomeScreen(container = container, modifier = Modifier.padding(innerPadding), openTab = { selected = it; onInteraction() })
+            CustomerTab.Stories -> GuidedInterviewsScreen(container, Modifier.padding(innerPadding)) { selected = CustomerTab.Home }
             CustomerTab.Capture -> CustomerCaptureScreen(container = container, modifier = Modifier.padding(innerPadding), onInteraction = onInteraction)
             CustomerTab.Library -> CustomerLibraryScreen(container = container, modifier = Modifier.padding(innerPadding))
+            CustomerTab.Wall -> {
+                BackHandler { selected = CustomerTab.More }
+                Column(Modifier.padding(innerPadding).fillMaxSize()) {
+                    TextButton({ selected = CustomerTab.More }) { Text("Back to More") }
+                    CustomerLibraryScreen(container, Modifier.weight(1f), wallOnly = true)
+                }
+            }
             CustomerTab.People -> CustomerPeopleScreen(container = container, modifier = Modifier.padding(innerPadding))
-            CustomerTab.More -> CustomerMoreScreen(container = container, modifier = Modifier.padding(innerPadding), fallbackSignOut = onSignOut)
+            CustomerTab.More -> CustomerMoreScreen(container = container, modifier = Modifier.padding(innerPadding), fallbackSignOut = onSignOut, openTab = { selected = it; onInteraction() })
         }
     }
 }
@@ -893,6 +974,7 @@ private fun CustomerMoreScreen(
     container: AppContainer,
     modifier: Modifier = Modifier,
     fallbackSignOut: () -> Unit,
+    openTab: (CustomerTab) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -911,6 +993,13 @@ private fun CustomerMoreScreen(
     var activityOpen by remember { mutableStateOf(false) }
     var resourcesOpen by remember { mutableStateOf(false) }
     var closureOpen by remember { mutableStateOf(false) }
+    var welcomeOpen by remember { mutableStateOf(false) }
+    var archiveDestination by remember { mutableStateOf<String?>(null) }
+    val closeArchive = { archiveDestination = null }
+    when (archiveDestination) {
+        "Letters" -> { BackHandler(onBack = closeArchive); LettersScreen(container, modifier, closeArchive); return }
+    }
+    if (welcomeOpen) { OnboardingScreen(modifier, replay = true) { welcomeOpen = false }; return }
     if (familyOpen) { FamilySharingScreen(container, modifier) { familyOpen = false }; return }
     if (settingsOpen) { ProfileSettingsScreen(container, modifier) { settingsOpen = false }; return }
     if (feedbackOpen) { FeedbackSupportScreen(container, modifier) { feedbackOpen = false }; return }
@@ -985,7 +1074,27 @@ private fun CustomerMoreScreen(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { Text("Account and security", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
+        item { Text("More", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
+        item { Text("Archive", style = MaterialTheme.typography.titleLarge) }
+        items(listOf("Home", "Stories", "Wall", "Media", "Letters", "People", "Family", "Keepsake book")) { destination ->
+            val label = if (destination == "Wall" && (account as? AccountResult.Success)?.value?.productFamily == "family") "Mosaic" else destination
+            Card(Modifier.fillMaxWidth().clickable(role = Role.Button) {
+                when (destination) {
+                    "Home" -> openTab(CustomerTab.Home)
+                    "Stories" -> openTab(CustomerTab.Stories)
+                    "Media" -> openTab(CustomerTab.Library)
+                    "Wall" -> openTab(CustomerTab.Wall)
+                    "People" -> openTab(CustomerTab.People)
+                    "Family" -> familyOpen = true
+                    "Keepsake book" -> resourcesOpen = true
+                    else -> archiveDestination = destination
+                }
+            }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) { Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                ArchiveNavigationIcon(destination, container.appearanceStore.load(), Modifier.size(32.dp))
+                Text(label, style = MaterialTheme.typography.titleMedium)
+            } }
+        }
+        item { Text("Account", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge) }
         when (val current = account) {
             null -> item { LoadingMessage("Loading account and security details…") }
             AccountResult.AuthenticationRequired -> item { Text("Sign in again to verify account access.", color = MaterialTheme.colorScheme.error) }
@@ -1004,32 +1113,7 @@ private fun CustomerMoreScreen(
                         } else if (current.value.experiment?.resourceState == "completed" && !current.value.hasAccess) {
                             Text("Your guided interview is complete. Additional capture choices are not available in this app.", style = MaterialTheme.typography.bodySmall)
                         }
-                        Text("${current.value.storage.usedLabel} used · ${current.value.storage.availableLabel} available", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (current.value.productionArchives.isNotEmpty()) {
-                            Text("Allowance by storyteller", style = MaterialTheme.typography.titleSmall)
-                            current.value.productionArchives.forEach { archive ->
-                                Text(archive.subjectName, style = MaterialTheme.typography.labelLarge)
-                                archive.audioSeconds?.let { Text("Voice: ${it.remaining.durationAllowanceLabel()} remaining", style = MaterialTheme.typography.bodySmall) }
-                                archive.photographs?.let { Text("Photos: ${"%,d".format(it.remaining)} remaining", style = MaterialTheme.typography.bodySmall) }
-                                archive.videoSeconds?.let { allowance ->
-                                    Text(
-                                        text = if (current.value.capabilities.captureVideo) {
-                                            "Video: ${allowance.remaining.durationAllowanceLabel()} remaining"
-                                        } else {
-                                            "Video: not included"
-                                        },
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
-                                }
-                            }
-                            val sharedAudio = current.value.productionPools.audioSeconds?.remaining ?: 0
-                            val sharedVideo = current.value.productionPools.videoSeconds?.remaining ?: 0
-                            if (sharedAudio > 0 || sharedVideo > 0) {
-                                Text("Shared add-on capacity", style = MaterialTheme.typography.labelLarge)
-                                if (sharedAudio > 0) Text("Voice: ${sharedAudio.durationAllowanceLabel()}", style = MaterialTheme.typography.bodySmall)
-                                if (sharedVideo > 0) Text("Video: ${sharedVideo.durationAllowanceLabel()}", style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
+                        AccountAllowances(current.value)
                         if (current.value.deliveryContact?.status == "verified") {
                             Text("Delivery contact verified: ${current.value.deliveryContact.email}", style = MaterialTheme.typography.bodySmall)
                         } else {
@@ -1077,13 +1161,14 @@ private fun CustomerMoreScreen(
                 if (delivery.revokedAt == null && delivery.state in setOf("pending_verification", "scheduled", "delivered", "failed")) TextButton(onClick = { revokeDeliveryId = delivery.id }) { Text("Revoke delivery access") }
             } } }
         }
+        item { TextButton({ welcomeOpen = true }, Modifier.fillMaxWidth()) { Text("Explore the Narratrace welcome tour") } }
         item { Text("Family", style = MaterialTheme.typography.titleLarge) }
         item { Card(Modifier.fillMaxWidth().clickable { familyOpen = true }) { Column(Modifier.padding(16.dp)) {
             Text("Family sharing and Circles", style = MaterialTheme.typography.titleMedium)
             Text("Manage roles, invitations, Mosaic access, and explicitly shared Circle stories.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         } } }
         item { Card(Modifier.fillMaxWidth().clickable { settingsOpen = true }) { Column(Modifier.padding(16.dp)) {
-            Text("Profile, language, and notifications", style = MaterialTheme.typography.titleMedium)
+            Text("Profile, themes, and preferences", style = MaterialTheme.typography.titleMedium)
             Text("Manage your profile, optional notifications, and app appearance.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         } } }
         item { Card(Modifier.fillMaxWidth().clickable { activityOpen = true }) { Column(Modifier.padding(16.dp)) { Text("Activity and processing", style = MaterialTheme.typography.titleMedium); Text("Review preservation progress and safely retry optional processing.", color = MaterialTheme.colorScheme.onSurfaceVariant) } } }
@@ -1275,13 +1360,9 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
         item { Button(onClick = { language = if (language == "en") "hi" else "en" }, Modifier.fillMaxWidth()) { Text("Language: ${if (language == "hi") "हिन्दी" else "English"}") } }
         item { Button(onClick = { busy = true; scope.launch { val saved = container.settingsRepository.updateProfile(name, birthYear.toIntOrNull(), language); message = if (saved is FeatureResult.Success) "Profile saved." else (saved as? FeatureResult.Unavailable)?.message; busy = false } }, enabled = !busy && name.trim().isNotEmpty() && birthYearValid, modifier = Modifier.fillMaxWidth()) { Text("Save profile") } }
         item { Text("App appearance", style = MaterialTheme.typography.titleLarge) }
-        items(NarratraceAppearance.entries, key = { it.name }) { appearance ->
-            val chosen = container.appearanceStore.load() == appearance
-            Button(
-                onClick = { if (container.appearanceStore.save(appearance)) (context as? Activity)?.recreate() },
-                modifier = Modifier.fillMaxWidth().semantics { selected = chosen },
-            ) { Text(appearance.displayName + if (chosen) " ✓" else "") }
-        }
+        item { ThemeChoices(container.appearanceStore.load()) { appearance ->
+            if (container.appearanceStore.save(appearance)) (context as? Activity)?.recreate()
+        } }
         item { Text(MEDIA_INSIGHTS_HEADING, Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge) }
         item { Text("Photo and video insights are optional and off by default. Review each disclosure before allowing that use. Turning either off keeps your media usable.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         (mediaAiPreferences as? FeatureResult.Success)?.value?.let { state ->
@@ -1604,7 +1685,7 @@ private fun CustomerCaptureScreen(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                item { Text("Capture a Memory", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
+                item { Text("How would you like to begin?", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge, fontFamily = androidx.compose.ui.text.font.FontFamily.Serif) }
                 protectedUploadAttention(container.mediaRepository.queue.items())?.let { attention -> item {
                     Text(attention, Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, color = MaterialTheme.colorScheme.error)
                 } }
@@ -1628,54 +1709,29 @@ private fun CustomerCaptureScreen(
                     Text("Your guided interview is complete. Additional capture choices are not available in this app.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 item {
-                    Card(
-                        Modifier.fillMaxWidth().clickable(enabled = fullCaptureAccess) {
-                            onInteraction(); writing = true
-                        },
-                    ) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text("Write a Memory", style = MaterialTheme.typography.titleMedium)
-                            Text("Preserve text privately with retry-safe confirmation.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-                item { Card(Modifier.fillMaxWidth().clickable(enabled = current.value.capabilities.createLetters) { onInteraction(); letters = true }) { Column(Modifier.padding(16.dp)) {
-                    Text("Write a Letter", style = MaterialTheme.typography.titleMedium)
-                    Text("Send now or preserve it privately for a future delivery time.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } } }
-                item {
-                    Card(Modifier.fillMaxWidth().clickable(enabled = captureAvailability.audioEnabled) { onInteraction(); recordingAudio = true }) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text("Record audio", style = MaterialTheme.typography.titleMedium)
-                            Text("Encrypted on this device until preservation is verified.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-                item { Card(Modifier.fillMaxWidth().clickable(enabled = captureAvailability.photoEnabled) { photoPicker.launch("image/*") }) { Column(Modifier.padding(16.dp)) {
-                    Text("Add a photo", style = MaterialTheme.typography.titleMedium)
-                    Text("The selected photo is encrypted before retry staging.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    photoMessage?.let {
-                        Text(
-                            it,
-                            Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (container.mediaRepository.latestReconciliationIssue() != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                } } }
-                item { Card(Modifier.fillMaxWidth().clickable(enabled = captureAvailability.videoEnabled) { videoPicker.launch("video/*") }) { Column(Modifier.padding(16.dp)) {
-                    Text("Record video", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        if (!current.value.capabilities.captureVideo) "Video is not included in this plan."
-                        else "Choose or record a clip for encrypted, resumable preservation.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    CaptureChoices(
+                        audioEnabled = captureAvailability.audioEnabled,
+                        photoEnabled = captureAvailability.photoEnabled,
+                        videoEnabled = captureAvailability.videoEnabled,
+                        writingEnabled = fullCaptureAccess,
+                        recordAudio = { onInteraction(); recordingAudio = true },
+                        addPhoto = { onInteraction(); photoPicker.launch("image/*") },
+                        addVideo = { onInteraction(); videoPicker.launch("video/*") },
+                        write = { onInteraction(); writing = true },
                     )
-                } } }
+                }
+                photoMessage?.let { message -> item {
+                    Text(message, Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                        color = if (container.mediaRepository.latestReconciliationIssue() != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                } }
+                if (!current.value.capabilities.captureVideo) item { Text("Video is not included in this plan.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 item {
-                    Card(Modifier.fillMaxWidth().clickable(enabled = interviewAccess) { onInteraction(); interviews = true }) { Column(Modifier.padding(16.dp)) {
-                        Text("Start a guided interview", style = MaterialTheme.typography.titleMedium)
-                        Text("Use text or protected audio responses with Nia.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    } }
+                    OutlinedButton({ onInteraction(); letters = true }, enabled = current.value.capabilities.createLetters,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text("Write a Letter") }
+                }
+                item {
+                    OutlinedButton({ onInteraction(); interviews = true }, enabled = interviewAccess,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text("Start a guided interview") }
                 }
                 if (!fullCaptureAccess && !experienceFirstAccess) item {
                     Text("Your current account can read the archive but cannot capture new Memories.", color = MaterialTheme.colorScheme.error)
@@ -1696,7 +1752,7 @@ private fun LettersScreen(container: AppContainer, modifier: Modifier, close: ()
     if (selected != null) { LetterDetailScreen(container, selected!!, modifier) { selected = null; refresh++ }; return }
     BackHandler(onBack = close)
     LazyColumn(modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Capture") }; Text("Letters", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) } }
+        item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }; Text("Letters", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) } }
         item { Text("Letters use the same private, revocable delivery workflow as other artifacts. External recipients confirm or decline without seeing Letter content; Narratrace requires confirmation again at delivery when the prior confirmation is more than 12 months old.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { Button(onClick = { composing = true }, Modifier.fillMaxWidth()) { Text("Write a Letter") } }
         when (val loaded = result) {
@@ -1817,7 +1873,7 @@ private fun AudioCaptureScreen(
     Column(modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         if (!recording) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = close, enabled = !busy) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Capture") }
+                IconButton(onClick = close, enabled = !busy) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
                 Text(if (interviewId == null) "Record audio" else "Audio response", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
             }
         }
@@ -1896,8 +1952,8 @@ private fun GuidedInterviewsScreen(container: AppContainer, modifier: Modifier, 
     BackHandler(onBack = close)
     LazyColumn(modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Capture") }
-            Text("Guided interviews", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
+            IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+            Text("Stories", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
         } }
         item { Text("$NIA_DEFINITION Nia uses your responses to suggest thoughtful follow-up questions. AI may make mistakes; review generated material before relying on or sharing it.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (legal is FeatureResult.Success && !(legal as FeatureResult.Success<io.narratrace.android.core.media.LegalAcceptance>).value.aiNoticeAcknowledged) {
@@ -2122,7 +2178,7 @@ private fun WrittenMemoryComposer(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = close, enabled = !saving) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to Capture")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
             Text("Write a Memory", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
         }
@@ -2497,7 +2553,7 @@ private fun RetrySurface(
 }
 
 @Composable
-private fun CustomerLibraryScreen(container: AppContainer, modifier: Modifier = Modifier) {
+private fun CustomerLibraryScreen(container: AppContainer, modifier: Modifier = Modifier, wallOnly: Boolean = false) {
     var result by remember { mutableStateOf<CustomerMemoriesResult?>(null) }
     var refreshKey by remember { mutableStateOf(0) }
     var selectedMemoryId by remember { mutableStateOf<String?>(null) }
@@ -2527,17 +2583,17 @@ private fun CustomerLibraryScreen(container: AppContainer, modifier: Modifier = 
             modifier = modifier.fillMaxSize().padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Library", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
-            LoadingMessage("Loading your private Library…")
+            Text(if (wallOnly) "Wall" else "Media", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
+            LoadingMessage(if (wallOnly) "Loading your Wall…" else "Loading your private Media…")
         }
         CustomerMemoriesResult.AuthenticationRequired -> Column(
             modifier = modifier.fillMaxSize().padding(24.dp),
-        ) { Text("Sign in again to verify your private Library.", color = MaterialTheme.colorScheme.error) }
+        ) { Text(if (wallOnly) "Sign in again to verify your Wall." else "Sign in again to verify your private Media.", color = MaterialTheme.colorScheme.error) }
         is CustomerMemoriesResult.Unavailable -> Column(
             modifier = modifier.fillMaxSize().padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Library unavailable", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
+            Text(if (wallOnly) "Wall unavailable" else "Media unavailable", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
             Text(current.message, color = MaterialTheme.colorScheme.error)
             if (current.supportReference.isNotBlank()) Text("Support reference: ${current.supportReference}", style = MaterialTheme.typography.bodySmall)
             Button(onClick = { result = null; refreshKey++ }) { Text("Try again") }
@@ -2547,6 +2603,10 @@ private fun CustomerLibraryScreen(container: AppContainer, modifier: Modifier = 
             current.value.mode,
             current.value.memories,
             (media as? FeatureResult.Success)?.value?.media.orEmpty(),
+            modifier = modifier,
+            mediaVerified = media is FeatureResult.Success,
+            showIllustration = shouldShowLibraryIllustration(media),
+            wallOnly = wallOnly,
             open = { selectedMemoryId = it.id },
             openMedia = { selectedMediaId = it.id },
         )
@@ -2554,17 +2614,17 @@ private fun CustomerLibraryScreen(container: AppContainer, modifier: Modifier = 
 }
 
 @Composable
-private fun VerifiedLibrary(container: AppContainer, mode: String, memories: List<RemoteMemory>, media: List<MediaSummary>, open: (RemoteMemory) -> Unit, openMedia: (MediaSummary) -> Unit) {
+private fun VerifiedLibrary(container: AppContainer, mode: String, memories: List<RemoteMemory>, media: List<MediaSummary>, modifier: Modifier, mediaVerified: Boolean, showIllustration: Boolean, wallOnly: Boolean, open: (RemoteMemory) -> Unit, openMedia: (MediaSummary) -> Unit) {
     var query by remember { mutableStateOf("") }
     var search by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.customer.SearchResponse>?>(null) }
     var searching by remember { mutableStateOf(false) }; val scope = rememberCoroutineScope()
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text("Library", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
+            Text(if (wallOnly) { if (mode == "mosaic") "Mosaic" else "Wall" } else "Media", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
         }
         item { OutlinedTextField(query, { query = it.take(100); search = null }, Modifier.fillMaxWidth(), label = { Text("Search your archive") }, singleLine = true) }
         item { Button(onClick = { searching = true; scope.launch { search = container.customerRepository.search(query); searching = false } }, enabled = !searching && query.trim().length >= 2, modifier = Modifier.fillMaxWidth()) { Text("Search") } }
@@ -2574,6 +2634,7 @@ private fun VerifiedLibrary(container: AppContainer, mode: String, memories: Lis
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to search your archive.", color = MaterialTheme.colorScheme.error) }
             null -> Unit
         }
+        if (wallOnly) {
         item {
             Text(
                 if (mode == "mosaic") "Your Memories and explicitly shared family Memories." else "Your private Memories.",
@@ -2589,19 +2650,26 @@ private fun VerifiedLibrary(container: AppContainer, mode: String, memories: Lis
         } else {
             items(memories, key = { it.id }) { memory -> MemoryCard(memory, open) }
         }
+        }
+        if (!wallOnly) {
         item { Text("Audio, photos, and videos", style = MaterialTheme.typography.titleLarge) }
-        if (media.isEmpty()) item { Text("No preserved media yet.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (showIllustration) item { LibraryPhotoIllustration() }
+        if (!mediaVerified) item { Text("Your media could not yet be verified. Return to Media to try again.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        else if (media.isEmpty()) item { Text("No preserved media yet.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         else items(media, key = { "media:${it.id}" }) { item -> Card(Modifier.fillMaxWidth().clickable { openMedia(item) }) { Column(Modifier.padding(16.dp)) {
             Text(item.title, style = MaterialTheme.typography.titleMedium)
             Text("${item.kind.replaceFirstChar(Char::uppercase)} · ${item.state.replace('_', ' ')}", color = MaterialTheme.colorScheme.onSurfaceVariant)
         } } }
+        }
     }
 }
 
 @Composable
 private fun CustomerMediaDetailScreen(container: AppContainer, mediaId: String, modifier: Modifier, close: () -> Unit) {
     var result by remember(mediaId) { mutableStateOf<FeatureResult<io.narratrace.android.core.media.MediaDetailResponse>?>(null) }
-    var photoBytes by remember { mutableStateOf<ByteArray?>(null) }
+    var photoBytes by remember(mediaId) { mutableStateOf<ByteArray?>(null) }
+    var photoLoading by remember(mediaId) { mutableStateOf(true) }
+    var loadRevision by remember(mediaId) { mutableIntStateOf(0) }
     var confirmDelete by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var delivering by remember { mutableStateOf(false) }
@@ -2621,7 +2689,9 @@ private fun CustomerMediaDetailScreen(container: AppContainer, mediaId: String, 
             FeatureResult.AuthenticationRequired -> { saveError = true; "Sign in again before refreshing photo insights." }
         }
     }
-    LaunchedEffect(mediaId) {
+    LaunchedEffect(mediaId, loadRevision) {
+        photoLoading = true
+        photoBytes = null
         val loaded = container.mediaRepository.mediaDetail(mediaId)
         photoInsightsEnabled = ((container.settingsRepository.mediaAiPreferences() as? FeatureResult.Success)
             ?.value?.preferences?.photoAiInsightsEnabled == true)
@@ -2629,6 +2699,7 @@ private fun CustomerMediaDetailScreen(container: AppContainer, mediaId: String, 
         val detail = (loaded as? FeatureResult.Success)?.value?.media
         caption = detail?.caption.orEmpty(); tags = detail?.customTags?.joinToString(", ").orEmpty()
         if (detail?.kind == "photo" && detail.playbackUrl != null) photoBytes = container.mediaRepository.playback(detail.playbackUrl)
+        photoLoading = false
     }
     if (delivering) { ArtifactDeliveryComposer(container, mediaId, modifier) { delivering = false }; return }
     if (confirmDelete) AlertDialog(
@@ -2640,12 +2711,22 @@ private fun CustomerMediaDetailScreen(container: AppContainer, mediaId: String, 
     when (val loaded = result) {
         null -> LoadingSurface(modifier, "Media", "Opening protected media…")
         FeatureResult.AuthenticationRequired -> FailureSurface(modifier, "Sign in again to verify this media.")
-        is FeatureResult.Unavailable -> RetrySurface(modifier, "Media unavailable", loaded.message, loaded.supportReference) { result = null }
+        is FeatureResult.Unavailable -> RetrySurface(modifier, "Media unavailable", loaded.message, loaded.supportReference) { result = null; loadRevision++ }
         is FeatureResult.Success -> {
             val detail = loaded.value.media
             Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Library") }; Text(detail.title, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
-                if (detail.kind == "photo") photoBytes?.let { bytes -> BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.let { bitmap -> Image(bitmap.asImageBitmap(), "Preserved photo", Modifier.fillMaxWidth()) } }
+                Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Media") }; Text(detail.title, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
+                if (detail.kind == "photo") {
+                    val bitmap = photoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+                    when {
+                        bitmap != null -> Image(bitmap.asImageBitmap(), "Preserved photo", Modifier.fillMaxWidth())
+                        photoLoading -> LoadingMessage("Opening your photo…")
+                        else -> {
+                            Text("Photo preview is unavailable. Try again to load the protected image.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Button({ loadRevision++ }) { Text("Retry photo") }
+                        }
+                    }
+                }
                 else detail.playbackUrl?.let { url -> AndroidView(
                     factory = { ctx -> VideoView(ctx).apply {
                         contentDescription = "Protected ${detail.kind} player for ${detail.title}"
@@ -2670,7 +2751,7 @@ private fun CustomerMediaDetailScreen(container: AppContainer, mediaId: String, 
                     Text("Add what you know to the caption or your tags. Nia will use it only when Photo insights are enabled.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 saveMessage?.let { Text(it, Modifier.semantics { liveRegion = if (saveError) LiveRegionMode.Assertive else LiveRegionMode.Polite }, color = if (saveError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
-                OutlinedTextField(caption, { caption = it.take(300) }, Modifier.fillMaxWidth(), label = { Text("Caption") })
+                OutlinedTextField(caption, { caption = it.take(300) }, Modifier.fillMaxWidth(), label = { Text(if (detail.kind == "photo") "Your memory" else "Caption") }, supportingText = { if (detail.kind == "photo") Text("Add names, places, dates, or the story behind the moment. Saving asks Nia to refresh its insights when Photo insights are enabled.") })
                 Button(onClick = { busy = true; scope.launch {
                     when (val saved = container.mediaRepository.updateCaption(mediaId, caption)) {
                         is FeatureResult.Success -> {
@@ -2799,7 +2880,7 @@ private fun CustomerMemoryDetailScreen(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onBack, enabled = !changing) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to Library")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                     Text(memory.title, modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
                 }
@@ -2868,7 +2949,7 @@ private fun CustomerMemoryDetailScreen(
 }
 
 @Composable
-private fun CustomerHomeScreen(container: AppContainer, modifier: Modifier = Modifier) {
+private fun CustomerHomeScreen(container: AppContainer, modifier: Modifier = Modifier, openTab: (CustomerTab) -> Unit) {
     var result by remember { mutableStateOf<CustomerHomeResult?>(null) }
     var refreshKey by remember { mutableStateOf(0) }
     var activity by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.customer.ActivityPage>?>(null) }
@@ -2880,16 +2961,16 @@ private fun CustomerHomeScreen(container: AppContainer, modifier: Modifier = Mod
         verticalArrangement = Arrangement.spacedBy(16.dp),
         horizontalAlignment = Alignment.Start,
     ) {
-        Text("Home", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
+        ReceptionWelcome()
         protectedUploadAttention(container.mediaRepository.queue.items())?.let {
             Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, color = MaterialTheme.colorScheme.error)
         }
         when (val current = result) {
             null -> {
-                LoadingMessage("Loading your private Home…")
+                LoadingMessage("Opening your Reception…")
             }
             CustomerHomeResult.AuthenticationRequired -> Text(
-                "Sign in again to verify your private Home.",
+                "Sign in again to verify your Reception.",
                 color = MaterialTheme.colorScheme.error,
             )
             is CustomerHomeResult.Unavailable -> {
@@ -2899,28 +2980,16 @@ private fun CustomerHomeScreen(container: AppContainer, modifier: Modifier = Mod
                 }
                 Button(onClick = { result = null; refreshKey++ }) { Text("Try again") }
             }
-            is CustomerHomeResult.Success -> VerifiedHome(current.value, activity)
+            is CustomerHomeResult.Success -> VerifiedHome(current.value, activity, openTab)
         }
     }
 }
 
 @Composable
-private fun VerifiedHome(customer: CustomerHome, activity: FeatureResult<io.narratrace.android.core.customer.ActivityPage>?) {
-    val storage = customer.account.storage
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Protected storage", style = MaterialTheme.typography.titleMedium)
-            Text("${storage.usedLabel} used · ${storage.availableLabel} available")
-            LinearProgressIndicator(
-                progress = { (storage.usedPercent.coerceIn(0, 100) / 100f) },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Text("${customer.account.plan.planLabel()} · ${customer.account.status.statusLabel()}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
+private fun VerifiedHome(customer: CustomerHome, activity: FeatureResult<io.narratrace.android.core.customer.ActivityPage>?, openTab: (CustomerTab) -> Unit) {
     Text("Recent Memories", style = MaterialTheme.typography.titleLarge)
     if (customer.home.recentMemories.isEmpty()) {
-        Text("Your recent private Memories will appear here.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        FirstMemoryWelcome { openTab(CustomerTab.Capture) }
     } else {
         customer.home.recentMemories.forEach { memory ->
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -2934,6 +3003,13 @@ private fun VerifiedHome(customer: CustomerHome, activity: FeatureResult<io.narr
                     )
                 }
             }
+        }
+    }
+    ReceptionDestinations({ openTab(CustomerTab.Capture) }, { openTab(CustomerTab.Library) }, { openTab(CustomerTab.People) }, { openTab(CustomerTab.More) })
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("${customer.account.plan.planLabel()} · ${customer.account.status.statusLabel()}", color = MaterialTheme.colorScheme.primary)
+            AccountAllowances(customer.account)
         }
     }
     if (customer.home.attention.isNotEmpty()) {

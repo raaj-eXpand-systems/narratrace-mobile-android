@@ -90,7 +90,7 @@ class AppContainer(context: Context) {
     val isApiConfigured: Boolean get() = BuildConfig.API_BASE_URL.isNotBlank()
 
     val authApi: AuthApi by lazy { AuthApi(apiClient) }
-    private val installationIdentity by lazy { AppInstallationIdentity(appContext) }
+    private val installationIdentity by lazy { AppInstallationIdentity() }
     val customerApi: CustomerApi by lazy { CustomerApi(apiClient) }
     val accountLifecycleApi: AccountLifecycleApi by lazy { AccountLifecycleApi(apiClient) }
     val securityRepository: SecurityRepository by lazy { SecurityRepository(authApi, sessionManager) }

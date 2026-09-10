@@ -12,6 +12,7 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -26,6 +27,19 @@ private data class Profile(val email: String, val displayName: String? = null)
  * changes, these fail — which is the point.
  */
 class NarratraceApiClientTest {
+
+    @Test fun `signed photo renditions retain the private storage boundary`() {
+        assertTrue(isAllowedSignedStorageURL("https://project.supabase.co/storage/v1/render/image/sign/Uploads/photo.jpg?token=signed"))
+        assertTrue(isAllowedSignedStorageURL("https://project.supabase.co/storage/v1/object/sign/Uploads/photo.jpg?token=signed"))
+        for (unsafe in listOf(
+            "https://project.supabase.co.evil.example/storage/v1/render/image/sign/Uploads/photo.jpg",
+            "http://project.supabase.co/storage/v1/render/image/sign/Uploads/photo.jpg",
+            "https://user:password@project.supabase.co/storage/v1/render/image/sign/Uploads/photo.jpg",
+            "https://project.supabase.co:444/storage/v1/render/image/sign/Uploads/photo.jpg",
+            "https://project.supabase.co/storage/v1/render/image/public/Uploads/photo.jpg",
+            "https://project.supabase.co/storage/v1/render/image/sign/../../public/Uploads/photo.jpg"
+        )) assertFalse(isAllowedSignedStorageURL(unsafe))
+    }
 
     @Test
     fun `protected transport does not follow redirects or replay request bodies`() {

@@ -11,27 +11,10 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-private val LightColors = lightColorScheme(
-    primary = Color(0xFF2D4C3B),
-    onPrimary = Color(0xFFFFFFFF),
-    secondary = Color(0xFF7B5B3A),
-    background = Color(0xFFFFF9EE),
-    surface = Color(0xFFFFF9EE),
-    onSurface = Color(0xFF1D211F),
-    onSurfaceVariant = Color(0xFF4F5752),
-    error = Color(0xFFB3261E),
-)
-
-private val DarkColors = darkColorScheme(
-    primary = Color(0xFFB1D3BE),
-    onPrimary = Color(0xFF183527),
-    secondary = Color(0xFFEBC08F),
-    background = Color(0xFF111512),
-    surface = Color(0xFF111512),
-    onSurface = Color(0xFFE2E8E3),
-    onSurfaceVariant = Color(0xFFC1C9C3),
-    error = Color(0xFFFFB4AB),
-)
+internal val LightColors = storybookColors(false, 0xFFFFF9EE, 0xFFFFFDF8, 0xFFF2E7D4,
+    0xFF253A40, 0xFF515B58, 0xFF805018, 0xFFFFFFFF, 0xFF85705A, 0xFF982F30)
+internal val DarkColors = storybookColors(true, 0xFF111512, 0xFF1D2520, 0xFF29372D,
+    0xFFF4EDE1, 0xFFCBD1C8, 0xFFE7B86A, 0xFF241B0C, 0xFF9BAE9D, 0xFFFFAAA2)
 
 // Customer preview of the cool Liquid Glass direction used across Narratrace.
 // Compose content surfaces remain opaque and legible; navigation and transient

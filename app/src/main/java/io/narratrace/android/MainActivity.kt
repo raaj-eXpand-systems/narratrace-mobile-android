@@ -4,10 +4,14 @@ import android.os.Bundle
 import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import io.narratrace.android.app.AppContainer
 import io.narratrace.android.app.NarratraceApp
+import io.narratrace.android.app.NarratraceLaunch
 import io.narratrace.android.core.ui.NarratraceTheme
 import io.narratrace.android.core.auth.parseHostedAuthCallback
 import kotlinx.coroutines.launch
@@ -20,7 +24,11 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         captureInboundLink(intent)
         setContent {
-            NarratraceTheme(appearance = container.appearanceStore.load()) { NarratraceApp(container) }
+            NarratraceTheme(appearance = container.appearanceStore.load()) {
+                Surface(Modifier.fillMaxSize()) {
+                    NarratraceLaunch(showOnLaunch = intent?.action != Intent.ACTION_VIEW) { NarratraceApp(container) }
+                }
+            }
         }
     }
 
