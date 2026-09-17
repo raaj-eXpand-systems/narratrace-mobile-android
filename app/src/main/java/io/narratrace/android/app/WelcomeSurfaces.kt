@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalConfiguration
 import kotlinx.coroutines.delay
 import androidx.compose.ui.semantics.selected
@@ -39,8 +40,12 @@ import io.narratrace.android.core.customer.AccountSummary
 
 @Composable
 internal fun NarratraceWordmark() {
-    Text("Narratrace", style = MaterialTheme.typography.headlineSmall, fontFamily = FontFamily.Serif,
-        color = MaterialTheme.colorScheme.primary)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Image(painterResource(R.drawable.narratrace_brand_mark), contentDescription = null,
+            modifier = Modifier.size(40.dp), contentScale = ContentScale.Fit)
+        Text(stringResource(R.string.brand_name), style = MaterialTheme.typography.headlineSmall,
+            fontFamily = FontFamily.Serif, color = MaterialTheme.colorScheme.primary)
+    }
 }
 
 /** Bundled photographic artwork remains available before sign-in and while offline. */
@@ -63,15 +68,18 @@ internal fun NarratraceLaunch(showOnLaunch: Boolean = true, content: @Composable
     var introducing by rememberSaveable { mutableStateOf(showOnLaunch) }
     LaunchedEffect(Unit) { delay(1_200); introducing = false }
     if (introducing) {
-        Column(Modifier.fillMaxSize().safeDrawingPadding().padding(32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center) {
-            Image(painterResource(R.drawable.narratrace_brand_mark), "Narratrace logo",
-                Modifier.weight(1f, fill = false).widthIn(max = 280.dp).aspectRatio(1f, matchHeightConstraintsFirst = true), contentScale = ContentScale.Fit)
-            Text("NARRATRACE", style = MaterialTheme.typography.headlineMedium, fontFamily = FontFamily.Serif)
-            Text("── • ──", Modifier.padding(vertical = 16.dp), color = MaterialTheme.colorScheme.primary)
-            Text("CAPTURE TODAY.\nTREASURE FOREVER.", textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        Box(Modifier.fillMaxSize().safeDrawingPadding(), contentAlignment = Alignment.Center) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                val painter = painterResource(R.drawable.narratrace_core_lockup)
+                val ratio = painter.intrinsicSize.width / painter.intrinsicSize.height
+                Image(painter, stringResource(R.string.app_name),
+                    Modifier.widthIn(max = 280.dp).fillMaxWidth().aspectRatio(ratio),
+                    contentScale = ContentScale.Fit)
+                Text(stringResource(R.string.brand_tagline), Modifier.padding(top = 16.dp),
+                    textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface)
+            }
         }
     } else content()
 }

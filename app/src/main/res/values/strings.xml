@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Narratrace</string>
+    <string name="brand_name">NARRATRACE</string>
+    <string name="brand_tagline">STORIES THAT MATTER.</string>
 </resources>
 

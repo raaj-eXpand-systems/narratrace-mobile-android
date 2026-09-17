@@ -33,10 +33,22 @@ class OnboardingAccessibilityTest {
     @Test fun logo_precedes_photographic_welcome_on_launch() {
         compose.mainClock.autoAdvance = false
         compose.setContent { NarratraceLaunch { OnboardingScreen { } } }
-        compose.onNodeWithContentDescription("Narratrace logo").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Narratrace").assertIsDisplayed()
+        compose.onNodeWithText("STORIES THAT MATTER.").assertIsDisplayed()
         compose.onNodeWithText("Welcome to\nNarratrace").assertDoesNotExist()
         compose.mainClock.advanceTimeBy(1_500)
         compose.onNodeWithText("Welcome to\nNarratrace").assertIsDisplayed()
+    }
+
+    @Test fun launch_tagline_remains_reachable_at_large_font_scale() {
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, 2f)
+            ) { NarratraceLaunch { } }
+        }
+        compose.onNodeWithText("STORIES THAT MATTER.").performScrollTo().assertIsDisplayed()
     }
 
     @Test fun introduction_distinguishes_new_and_returning_journeys() {
