@@ -34,6 +34,11 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.style.BaselineShift
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.dp
 import io.narratrace.android.R
 import io.narratrace.android.core.customer.AccountSummary
@@ -43,7 +48,12 @@ internal fun NarratraceWordmark() {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Image(painterResource(R.drawable.narratrace_brand_mark), contentDescription = null,
             modifier = Modifier.size(40.dp), contentScale = ContentScale.Fit)
-        Text(stringResource(R.string.brand_name), style = MaterialTheme.typography.headlineSmall,
+        Text(buildAnnotatedString {
+            append(stringResource(R.string.brand_name))
+            withStyle(SpanStyle(fontSize = 0.55.em, baselineShift = BaselineShift.Superscript)) {
+                append("™")
+            }
+        }, style = MaterialTheme.typography.headlineSmall,
             fontFamily = FontFamily.Serif, color = MaterialTheme.colorScheme.primary)
     }
 }

@@ -51,6 +51,11 @@ class OnboardingAccessibilityTest {
         compose.onNodeWithText("STORIES THAT MATTER.").performScrollTo().assertIsDisplayed()
     }
 
+    @Test fun compact_wordmark_keeps_trademark_with_accessible_name() {
+        compose.setContent { io.narratrace.android.app.NarratraceWordmark() }
+        compose.onNodeWithText("NARRATRACE™").assertIsDisplayed()
+    }
+
     @Test fun introduction_distinguishes_new_and_returning_journeys() {
         var newUser: Boolean? = null
         compose.setContent { OnboardingScreen { newUser = it } }
