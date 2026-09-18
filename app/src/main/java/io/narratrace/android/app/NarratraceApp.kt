@@ -314,11 +314,13 @@ fun NarratraceApp(container: AppContainer) {
             accessCredential = (authState as AuthState.Authenticated).session.accessToken,
         ) {
             RequiredLegalGate(container) {
-                AuthenticatedShell(
-                    container = container,
-                    onInteraction = container.sessionManager::touch,
-                    onSignOut = container.sessionManager::signOut,
-                )
+                androidx.compose.runtime.key(container.relationshipRevision.intValue) {
+                    AuthenticatedShell(
+                        container = container,
+                        onInteraction = container.sessionManager::touch,
+                        onSignOut = container.sessionManager::signOut,
+                    )
+                }
             }
         }
     }
@@ -1332,6 +1334,8 @@ private fun String.platformLabel(): String = when (lowercase()) {
 
 @Composable
 private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, close: () -> Unit) {
+    var blocksOpen by remember { mutableStateOf(false) }
+    if (blocksOpen) { BlockedPeopleScreen(container, modifier) { blocksOpen = false }; return }
     val context = LocalContext.current; val scope = rememberCoroutineScope()
     var profile by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.settings.ProfileResponse>?>(null) }
     var preferences by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.settings.PreferencesResponse>?>(null) }
@@ -1354,6 +1358,7 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
     BackHandler(onBack = close)
     LazyColumn(modifier.fillMaxSize().imePadding(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to account") }; Text("Profile and preferences", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) } }
+        item { OutlinedButton(onClick = { blocksOpen = true }, modifier = Modifier.fillMaxWidth()) { Text("Blocked people") } }
         item { Text("Support and feedback", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium) }
         item { Text("Use Feedback & support to report an issue or tell us how Narratrace can serve you better.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { OutlinedTextField(name, { name = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Display name") }, singleLine = true) }
@@ -1447,6 +1452,7 @@ private fun FamilySharingScreen(container: AppContainer, modifier: Modifier, clo
                 item { Text(own.name ?: "Your family", style = MaterialTheme.typography.titleLarge); Text("Your role: ${own.myRole}", style = MaterialTheme.typography.bodySmall) }
                 items(loaded.value.members, key = { it.id }) { member -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text(if (member.isCurrentUser) "You" else member.email, style = MaterialTheme.typography.titleMedium); Text("${member.role} · ${member.status}")
+                    if (!member.isCurrentUser && member.status in setOf("active", "pending")) BlockPersonButton(container, io.narratrace.android.core.family.BlockSource("family", own.id, member.email), member.email)
                     if (own.myRole == "owner" && !member.isCurrentUser) { Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         TextButton(onClick = { scope.launch { container.familyRepository.update(member.email, if (member.role == "viewer") "editor" else "viewer"); refresh++ } }) { Text(if (member.role == "viewer") "Make editor" else "Make viewer") }
                         TextButton(onClick = { scope.launch { container.familyRepository.remove(member.email); refresh++ } }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
@@ -1490,7 +1496,22 @@ private fun CircleDetailScreen(container: AppContainer, circle: io.narratrace.an
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify this Circle.", color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Success -> {
                 item { Text("Members", style = MaterialTheme.typography.titleLarge) }
-                items(loaded.value.members, key = { it.id }) { member -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) { Text(member.displayName ?: member.memberEmail.ifBlank { "Circle member" }); Text(member.status, style = MaterialTheme.typography.bodySmall); if (circle.role == "owner") TextButton(onClick = { scope.launch { container.familyRepository.circleAction(circle.id, "remove_member", member.memberEmail); refresh++ } }) { Text("Remove", color = MaterialTheme.colorScheme.error) } } } }
+                if (circle.role != "owner") item {
+                    BlockPersonButton(container, io.narratrace.android.core.family.BlockSource("circle", circle.id, target = "owner"), "Circle owner")
+                }
+                items(loaded.value.members, key = { it.id }) { member ->
+                    Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
+                        val memberLabel = member.displayName ?: member.memberEmail.ifBlank { "Circle member" }
+                        Text(if (member.isCurrentUser) "You" else memberLabel)
+                        Text(member.status, style = MaterialTheme.typography.bodySmall)
+                        if (member.status in setOf("active", "pending") && !member.isCurrentUser) {
+                            BlockPersonButton(container, io.narratrace.android.core.family.BlockSource("circle", circle.id, memberId = member.id), memberLabel)
+                        }
+                        if (circle.role == "owner") TextButton(onClick = { scope.launch {
+                            container.familyRepository.circleAction(circle.id, "remove_member", member.memberEmail); refresh++
+                        } }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+                    } }
+                }
                 if (circle.role == "owner") {
                     item { OutlinedTextField(email, { email = it.take(254) }, Modifier.fillMaxWidth(), label = { Text("Invite email") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email), singleLine = true) }
                     item { OutlinedTextField(displayName, { displayName = it.take(100) }, Modifier.fillMaxWidth(), label = { Text("Display name (optional)") }, singleLine = true) }

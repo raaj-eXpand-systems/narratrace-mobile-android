@@ -23,7 +23,7 @@ import kotlinx.serialization.serializer
 @Serializable data class Circle(val id: String, val name: String, val description: String? = null, val role: String, val createdAt: String)
 @Serializable data class CircleList(val circles: List<Circle>)
 @Serializable data class CircleResponse(val circle: Circle)
-@Serializable data class CircleMember(val id: String, val memberEmail: String, val displayName: String? = null, val status: String, val invitedAt: String, val joinedAt: String? = null)
+@Serializable data class CircleMember(val id: String, val memberEmail: String, val displayName: String? = null, val status: String, val invitedAt: String, val joinedAt: String? = null, val isCurrentUser: Boolean = false)
 @Serializable data class CircleMemory(val id: String, val subjectName: String, val subjectRelation: String? = null, val lifeDecade: Int? = null, val messageCount: Int, val narrative: String? = null, val createdAt: String, val updatedAt: String)
 @Serializable data class CircleLetter(val id: String, val subject: String, val recipientName: String, val body: String, val hasAudio: Boolean, val unlockAt: String? = null, val createdAt: String)
 @Serializable data class CircleDetail(val circle: Circle, val members: List<CircleMember>, val sharedInterviewIds: List<String>, val sharedMemories: List<CircleMemory>, val deliveredLetters: List<CircleLetter>)

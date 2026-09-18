@@ -142,6 +142,12 @@ class AppContainer(context: Context) {
         )
     }
     val lettersRepository: LettersRepository by lazy { LettersRepository(LettersApi(apiClient), sessionManager) }
+    val relationshipRevision = androidx.compose.runtime.mutableIntStateOf(0)
+    val userBlocksRepository by lazy {
+        io.narratrace.android.core.family.UserBlocksRepository(
+            io.narratrace.android.core.family.UserBlocksApi(apiClient), sessionManager,
+        ) { relationshipRevision.intValue++ }
+    }
     val familyRepository: FamilyRepository by lazy { FamilyRepository(FamilyApi(apiClient), sessionManager) }
     val settingsRepository: SettingsRepository by lazy { SettingsRepository(SettingsApi(apiClient), sessionManager) }
     val supportRepository: SupportRepository by lazy { SupportRepository(SupportApi(apiClient), sessionManager) }
