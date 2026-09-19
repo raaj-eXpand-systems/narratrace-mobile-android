@@ -9,7 +9,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import io.narratrace.android.app.CustomerTab
-import io.narratrace.android.app.NewUserWelcome
+import io.narratrace.android.app.ReceptionDestinations
 import io.narratrace.android.app.OnboardingScreen
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -82,22 +82,20 @@ class OnboardingAccessibilityTest {
         compose.runOnIdle { assertEquals(true, newUser) }
     }
 
-    @Test fun new_user_selects_purpose_before_opening_capture() {
+    @Test fun reception_opens_destinations_only_after_selection() {
         var destination: CustomerTab? = null
-        compose.setContent { NewUserWelcome { destination = it } }
-        compose.onNodeWithText("What brings you here today?").assertIsDisplayed()
-        compose.onNodeWithText("Preserve someone I love").performScrollTo().performClick()
+        compose.setContent {
+            androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+                ReceptionDestinations { destination = it }
+            }
+        }
+        compose.onNodeWithText("Explore Narratrace").assertIsDisplayed()
         compose.runOnIdle { assertEquals(null, destination) }
-        compose.onNodeWithText("Wonderful.").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Begin").performScrollTo().performClick()
+        compose.onNodeWithText("Stories").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(CustomerTab.Stories, destination) }
+        compose.onNodeWithText("Capture").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(CustomerTab.Capture, destination) }
-    }
-
-    @Test fun recipient_journey_opens_shared_memory_wall_instead_of_capture() {
-        var destination: CustomerTab? = null
-        compose.setContent { NewUserWelcome { destination = it } }
-        compose.onNodeWithText("I received a memory").performScrollTo().performClick()
-        compose.onNodeWithText("Explore my memories").performScrollTo().performClick()
-        compose.runOnIdle { assertEquals(CustomerTab.Wall, destination) }
+        compose.onNodeWithText("More").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(CustomerTab.More, destination) }
     }
 }

@@ -37,7 +37,6 @@ class OnboardingStore(context: Context) {
     private val preferences = context.getSharedPreferences("onboarding.v1", Context.MODE_PRIVATE)
     // Presentation preferences only: these never grant access or store captured content.
     fun completed() = preferences.getBoolean("introduction.v2", false)
-    fun newUserJourneyPending() = preferences.getBoolean("newUserJourney.pending", false)
     fun complete(newUser: Boolean = true) = preferences.edit()
         .putBoolean("introduction.v2", true)
         .putBoolean("newUserJourney.pending", newUser).commit()

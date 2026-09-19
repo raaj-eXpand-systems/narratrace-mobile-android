@@ -920,17 +920,9 @@ private fun AuthenticatedShell(
     onSignOut: () -> Unit,
 ) {
     var selected by remember { mutableStateOf(CustomerTab.Home) }
-    var journeyPending by remember { mutableStateOf(container.onboardingStore.newUserJourneyPending()) }
-    if (journeyPending) {
-        NewUserWelcome { destination ->
-            if (container.onboardingStore.finishJourney()) {
-                selected = destination
-                journeyPending = false
-                onInteraction()
-            }
-        }
-        return
-    }
+    // Retire a pending presentation-only journey after the existing account gates.
+    // New and returning customers both begin at Reception.
+    LaunchedEffect(Unit) { container.onboardingStore.finishJourney() }
     var invite by remember { mutableStateOf(container.pendingInvite) }
     val scope = rememberCoroutineScope()
     invite?.let { pending -> AlertDialog(
@@ -3009,25 +3001,7 @@ private fun CustomerHomeScreen(container: AppContainer, modifier: Modifier = Mod
 
 @Composable
 private fun VerifiedHome(customer: CustomerHome, activity: FeatureResult<io.narratrace.android.core.customer.ActivityPage>?, openTab: (CustomerTab) -> Unit) {
-    Text("Recent Memories", style = MaterialTheme.typography.titleLarge)
-    if (customer.home.recentMemories.isEmpty()) {
-        FirstMemoryWelcome { openTab(CustomerTab.Capture) }
-    } else {
-        customer.home.recentMemories.forEach { memory ->
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(memory.title, style = MaterialTheme.typography.titleMedium)
-                    Text(memory.excerpt, modifier = Modifier.padding(top = 4.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        if (memory.visibility == "family") "Shared with family" else "Private",
-                        modifier = Modifier.padding(top = 8.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                }
-            }
-        }
-    }
-    ReceptionDestinations({ openTab(CustomerTab.Capture) }, { openTab(CustomerTab.Library) }, { openTab(CustomerTab.People) }, { openTab(CustomerTab.More) })
+    ReceptionDestinations(openTab)
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("${customer.account.plan.planLabel()} · ${customer.account.status.statusLabel()}", color = MaterialTheme.colorScheme.primary)

@@ -156,85 +156,32 @@ private fun WelcomePage(modifier: Modifier = Modifier, step: Int = 0, content: @
     }
 }
 
-/** Reached only inside the authenticated lifecycle and required-legal gates. */
-@Composable
-internal fun NewUserWelcome(complete: (CustomerTab) -> Unit) {
-    var purpose by rememberSaveable { mutableIntStateOf(-1) }
-    BackHandler(enabled = purpose >= 0) { purpose = -1 }
-    WelcomePage(step = purpose) {
-        NarratraceWordmark()
-        if (purpose < 0) {
-            WelcomeArtwork(R.drawable.welcome_garden)
-            Text("What brings you here today?", Modifier.semantics { heading() },
-                style = MaterialTheme.typography.headlineLarge, fontFamily = FontFamily.Serif, textAlign = TextAlign.Center)
-            Text("Choose the option that best fits you. You can always explore the other options later.", textAlign = TextAlign.Center)
-            listOf(
-                Triple(Icons.Default.People, "Preserve someone I love", "Record stories, conversations and memories together."),
-                Triple(Icons.Default.Person, "Preserve my own story", "Leave memories for the people you love."),
-                Triple(Icons.Default.MailOutline, "I received a memory", "Explore the memory shared with you."),
-            ).forEachIndexed { index, (icon, title, body) ->
-                OutlinedCard(onClick = { purpose = index }, modifier = Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(20.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
-                        Column { Text(title, style = MaterialTheme.typography.titleMedium); Text(body, style = MaterialTheme.typography.bodyMedium) }
-                    }
-                }
-            }
-            TextButton({ complete(CustomerTab.Home) }) { Text("Explore Reception first") }
-        } else {
-            WelcomeArtwork(R.drawable.welcome_family)
-            Text(if (purpose == 2) "We’re glad you’re here." else "Wonderful.", Modifier.semantics { heading() },
-                style = MaterialTheme.typography.headlineLarge, fontFamily = FontFamily.Serif)
-            Text(if (purpose == 2) "A memory is a meaningful gift. Explore your Wall and the memories you have access to."
-                else "Every family has stories worth remembering. Let’s capture your first one together.", textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.bodyLarge)
-            Button({ complete(if (purpose == 2) CustomerTab.Wall else CustomerTab.Capture) }, Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
-                Text(if (purpose == 2) "Explore my memories" else "Begin")
-            }
-            TextButton({ purpose = -1 }) { Text("Back") }
-        }
-    }
-}
-
 @Composable
 internal fun ReceptionWelcome() {
     NarratraceWordmark()
     WelcomeArtwork(R.drawable.welcome_garden)
-    Text("Welcome home.", Modifier.semantics { heading() },
+    Text("Welcome to Reception.", Modifier.semantics { heading() },
         style = MaterialTheme.typography.headlineLarge, fontFamily = FontFamily.Serif)
-    Text("What would you like to remember today?", style = MaterialTheme.typography.bodyLarge,
+    Text("Your starting place in Narratrace. Explore each space, then choose where you would like to go. Home always brings you back here.", style = MaterialTheme.typography.bodyLarge,
         color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 @Composable
-internal fun FirstMemoryWelcome(openCapture: () -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Your story starts with one memory.", style = MaterialTheme.typography.headlineSmall, fontFamily = FontFamily.Serif)
-            Text("A familiar voice. A favorite photograph. Something you never want to forget.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Button(openCapture, Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Capture a memory") }
-        }
-    }
-}
-
-@Composable
-internal fun ReceptionDestinations(openCapture: () -> Unit, openLibrary: () -> Unit, openPeople: () -> Unit, openMore: () -> Unit) {
-    Text("Quick actions", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Serif)
-    val actions = listOf(
-        Triple("Capture", Icons.Default.Mic, openCapture),
-        Triple("Media", Icons.Default.PhotoLibrary, openLibrary),
-        Triple("People", Icons.Default.People, openPeople),
-        Triple("More", Icons.Default.Settings, openMore),
+internal fun ReceptionDestinations(openTab: (CustomerTab) -> Unit) {
+    Text("Explore Narratrace", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Serif)
+    val destinations = listOf(
+        Triple(CustomerTab.Stories, "Stories", "Tell your story with thoughtful interview prompts."),
+        Triple(CustomerTab.Wall, "Wall / Mosaic", "Explore the memories you have chosen to bring together."),
+        Triple(CustomerTab.Library, "Media", "Revisit your preserved photos, audio and videos."),
+        Triple(CustomerTab.People, "People", "Remember the people and relationships in your life."),
+        Triple(CustomerTab.Capture, "Capture", "Keep a new voice recording, photograph, video or written memory."),
+        Triple(CustomerTab.More, "More", "Open Letters, Family, Keepsake book, account and settings."),
     )
-    actions.chunked(2).forEach { row ->
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-            row.forEach { (label, icon, action) ->
-                OutlinedCard(onClick = action, modifier = Modifier.weight(1f)) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
-                        Text(label, style = MaterialTheme.typography.labelLarge)
-                    }
-                }
+    destinations.forEach { (tab, title, description) ->
+        OutlinedCard(onClick = { openTab(tab) }, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
