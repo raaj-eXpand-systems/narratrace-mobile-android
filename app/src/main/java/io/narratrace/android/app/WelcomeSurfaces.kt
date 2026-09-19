@@ -167,7 +167,7 @@ internal fun ReceptionWelcome() {
 }
 
 @Composable
-internal fun ReceptionDestinations(openTab: (CustomerTab) -> Unit) {
+internal fun ReceptionDestinations(appearance: io.narratrace.android.core.ui.NarratraceAppearance = io.narratrace.android.core.ui.NarratraceAppearance.System, openTab: (CustomerTab) -> Unit) {
     Text("Explore Narratrace", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Serif)
     val destinations = listOf(
         Triple(CustomerTab.Stories, "Stories", "Tell your story with thoughtful interview prompts."),
@@ -180,6 +180,9 @@ internal fun ReceptionDestinations(openTab: (CustomerTab) -> Unit) {
     destinations.forEach { (tab, title, description) ->
         OutlinedCard(onClick = { openTab(tab) }, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.primary) {
+                    ArchiveNavigationIcon(tab.label, appearance, Modifier.size(28.dp))
+                }
                 Text(title, style = MaterialTheme.typography.titleMedium)
                 Text(description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }

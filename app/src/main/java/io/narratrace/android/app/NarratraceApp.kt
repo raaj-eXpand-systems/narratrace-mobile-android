@@ -885,7 +885,7 @@ internal enum class CustomerTab(val label: String) {
 
 /** The same destination uses the same themed icon in both navigation surfaces. */
 @Composable
-private fun ArchiveNavigationIcon(destination: String, appearance: NarratraceAppearance, modifier: Modifier) {
+internal fun ArchiveNavigationIcon(destination: String, appearance: NarratraceAppearance, modifier: Modifier) {
     val artwork = when (destination) {
         "Home", "Keepsake book" -> R.drawable.nav_capsule
         "Stories" -> R.drawable.nav_interviews
@@ -2994,14 +2994,14 @@ private fun CustomerHomeScreen(container: AppContainer, modifier: Modifier = Mod
                 }
                 Button(onClick = { result = null; refreshKey++ }) { Text("Try again") }
             }
-            is CustomerHomeResult.Success -> VerifiedHome(current.value, activity, openTab)
+            is CustomerHomeResult.Success -> VerifiedHome(current.value, activity, container.appearanceStore.load(), openTab)
         }
     }
 }
 
 @Composable
-private fun VerifiedHome(customer: CustomerHome, activity: FeatureResult<io.narratrace.android.core.customer.ActivityPage>?, openTab: (CustomerTab) -> Unit) {
-    ReceptionDestinations(openTab)
+private fun VerifiedHome(customer: CustomerHome, activity: FeatureResult<io.narratrace.android.core.customer.ActivityPage>?, appearance: NarratraceAppearance, openTab: (CustomerTab) -> Unit) {
+    ReceptionDestinations(appearance, openTab)
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("${customer.account.plan.planLabel()} · ${customer.account.status.statusLabel()}", color = MaterialTheme.colorScheme.primary)
