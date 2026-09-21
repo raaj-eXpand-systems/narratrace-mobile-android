@@ -19,7 +19,7 @@ data class MobileSession(
     val accessExpiresAtMillis: Long,
     /** Stable server account ID. Namespaces every encrypted artefact on this device. */
     val accountId: String,
-    /** Last deliberate member interaction, epoch millis. Drives the inactivity gate. */
+    /** Last deliberate member interaction, epoch millis. Retained for persisted-session compatibility. */
     val lastActiveAtMillis: Long,
 ) {
     /**
@@ -49,37 +49,6 @@ data class MobileSession(
 }
 
 /**
- * Requires reauthentication after a period of inactivity.
- *
- * ANDROID_ARCHITECTURE_PLAN.md §5 item 7: thirty minutes, and before any
- * security-sensitive action regardless of elapsed time.
- *
- * Deliberately pure — no clock, no storage, no Android types — because "did this
- * session lapse" is the single decision protecting an unattended phone, and it
- * should be provable in a unit test rather than inferred from a device.
- */
-class InactivityGate(
-    private val timeout: Duration = DEFAULT_TIMEOUT,
-) {
-
-    fun isLapsed(session: MobileSession, nowMillis: Long): Boolean {
-        // A clock that has moved backwards (timezone change, manual adjustment, NTP
-        // correction) must never be read as "recently active". Fail closed.
-        if (nowMillis < session.lastActiveAtMillis) return true
-        return nowMillis - session.lastActiveAtMillis >= timeout.inWholeMilliseconds
-    }
-
-    fun millisUntilLapse(session: MobileSession, nowMillis: Long): Long {
-        if (isLapsed(session, nowMillis)) return 0
-        return session.lastActiveAtMillis + timeout.inWholeMilliseconds - nowMillis
-    }
-
-    companion object {
-        val DEFAULT_TIMEOUT: Duration = 30.minutes
-    }
-}
-
-/**
  * What the app is allowed to do right now.
  *
  * Capture, playback, and every protected read are gated on [Authenticated]. There is
@@ -99,7 +68,7 @@ sealed interface AuthState {
     data class Authenticated(val session: MobileSession) : AuthState
 
     /**
-     * Credentials exist but the inactivity window lapsed.
+     * Credentials exist but protected access requires reauthentication.
      *
      * Distinct from [SignedOut] on purpose: the member's account is known, so the
      * prompt can be "welcome back" rather than a cold start, and their in-progress

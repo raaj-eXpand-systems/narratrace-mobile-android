@@ -34,7 +34,7 @@ sealed interface CustomerPersonResult {
 sealed interface AccountResult {
     data class Success(val value: AccountSummary) : AccountResult
     data object AuthenticationRequired : AccountResult
-    data class Unavailable(val message: String, val supportReference: String = "") : AccountResult
+    data class Unavailable(val message: String, val supportReference: String = "", val offline: Boolean = false) : AccountResult
 }
 
 sealed interface WrittenMemoryResult {
@@ -53,6 +53,16 @@ class CustomerRepository(
     private val gateway: CustomerGateway,
     private val sessions: SessionManager,
 ) {
+    private var cachedAccount: Pair<String, AccountSummary>? = null
+    fun lastVerifiedAccount(): AccountSummary? {
+        val id = (sessions.state.value as? io.narratrace.android.core.auth.AuthState.Authenticated)?.session?.accessToken
+        if (id == null || cachedAccount?.first != id) { cachedAccount = null; return null }
+        return cachedAccount?.second
+    }
+    suspend fun accountForLocalCapture(): AccountResult {
+        val fresh = loadAccount()
+        return if (fresh is AccountResult.Unavailable && fresh.offline) lastVerifiedAccount()?.takeIf { it.hasAccess && !it.isTrialPlan() }?.let { AccountResult.Success(it) } ?: fresh else fresh
+    }
     suspend fun search(query: String): FeatureResult<SearchResponse> {
         val clean = query.trim()
         if (clean.length < 2 || clean.length > 100) return FeatureResult.Unavailable("Enter at least two characters to search your archive.")
@@ -242,14 +252,20 @@ class CustomerRepository(
 
     private suspend fun loadAccountWithToken(token: String, allowRecovery: Boolean): AccountResult =
         when (val result = gateway.account(token)) {
-            is ApiResult.Success -> AccountResult.Success(result.value)
+            is ApiResult.Success -> {
+                val id = (sessions.state.value as? io.narratrace.android.core.auth.AuthState.Authenticated)?.session?.accessToken
+                if (id != token) AccountResult.AuthenticationRequired else {
+                    cachedAccount = token to result.value
+                    AccountResult.Success(result.value)
+                }
+            }
             is ApiResult.Unauthorized -> if (allowRecovery) {
                 when (val lease = sessions.recoverFromUnauthorized(token)) {
                     is TokenLease.Valid -> loadAccountWithToken(lease.accessToken, allowRecovery = false)
                     else -> lease.toAccountResult()
                 }
             } else AccountResult.AuthenticationRequired
-            is ApiResult.Failure -> AccountResult.Unavailable(result.message, result.supportReference)
+            is ApiResult.Failure -> AccountResult.Unavailable(result.message, result.supportReference, result is ApiResult.Offline)
         }
 
     private suspend fun createWrittenMemoryWithToken(
@@ -275,7 +291,7 @@ class CustomerRepository(
 
     private fun TokenLease.toAccountResult(): AccountResult = when (this) {
         TokenLease.Locked, TokenLease.SignedOut -> AccountResult.AuthenticationRequired
-        TokenLease.Unavailable -> AccountResult.Unavailable("Narratrace could not verify your session.")
+        TokenLease.Unavailable -> AccountResult.Unavailable("Narratrace could not verify your session.", offline = true)
         is TokenLease.Valid -> error("A valid lease must be used to load data.")
     }
 

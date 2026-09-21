@@ -66,6 +66,7 @@ sealed interface ApiResult<out T> {
         override val message: String,
         val fieldName: String? = null,
         override val supportReference: String,
+        val rawCode: String = "FORBIDDEN",
     ) : Failure
 
     /**

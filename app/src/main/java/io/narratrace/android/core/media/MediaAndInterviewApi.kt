@@ -60,6 +60,7 @@ import kotlinx.serialization.serializer
 @Serializable data class InterviewInsights(val covered: List<String>, val highlights: List<InterviewHighlight>)
 @Serializable data class InterviewNarrative(val narrative: String? = null)
 @Serializable data class NarrativeGroundingConsent(val groundingAgreementAccepted: Boolean = true)
+@Serializable data class ProtectedPlayback(val url: String, val expiresIn: Int = 300)
 @Serializable data class InterviewShare(val shareToken: String? = null)
 @Serializable data class MediaSummary(val id: String, val kind: String, val title: String, val state: String, val duration: Int? = null, val createdAt: String)
 @Serializable data class MediaList(val media: List<MediaSummary>)
@@ -108,6 +109,8 @@ class MediaAndInterviewApi(private val client: NarratraceApiClient) {
         "/api/v1/uploads", mobileUploadRequestBody(item, "confirm", auth.storagePath), serializer<UploadConfirmation>(), token,
     )
     suspend fun transfer(auth: UploadAuthorization, bytes: ByteArray, mime: String) = client.putSignedStorage(auth.uploadUrl, bytes, mime)
+    suspend fun interviewAudio(id: String, messageId: String, token: String) = client.getAudio("/api/v1/interviews/${segment(id)}/messages/${segment(messageId)}/audio", token)
+    suspend fun interviewVideo(id: String, messageId: String, token: String): ApiResult<ProtectedPlayback> = client.get("/api/v1/interviews/${segment(id)}/messages/${segment(messageId)}/media", serializer<ProtectedPlayback>(), token)
     suspend fun interviews(token: String): ApiResult<InterviewList> = client.get("/api/v1/interviews?limit=100", serializer<InterviewList>(), token)
     suspend fun createInterview(name: String, relation: String?, decade: Int?, key: String, token: String): ApiResult<InterviewCreation> = client.post(
         "/api/v1/interviews", NarratraceJson.encodeToString(CreateInterview(name, relation, decade)), serializer<InterviewCreation>(), token, key,
@@ -166,8 +169,8 @@ class MediaAndInterviewApi(private val client: NarratraceApiClient) {
         "/api/v1/videos", mobileVideoRequestBody(item), serializer<VideoAuthorization>(), token,
     )
     suspend fun transferVideo(url: String, bytes: ByteArray) = client.uploadTus(url, bytes)
-    suspend fun transferVideo(url: String, item: PendingMedia, queue: ProtectedMediaQueue) =
-        client.uploadTus(url, item.byteCount) { offset, size -> queue.readRange(item, offset, size) }
+    suspend fun transferVideo(url: String, item: PendingMedia, queue: ProtectedMediaQueue, leaseStillCurrent: () -> Boolean) =
+        client.uploadTus(url, item.byteCount) { offset, size -> if (leaseStillCurrent()) queue.readRange(item, offset, size) else null }
     suspend fun videoPreservation(id: String, token: String): ApiResult<VideoPreservationResponse> = client.get("/api/v1/videos?id=${segment(id)}", serializer<VideoPreservationResponse>(), token)
     suspend fun confirmInterviewVideo(item: PendingMedia, token: String): ApiResult<InterviewResponse> = client.post(
         "/api/v1/interviews/${segment(item.interviewId.orEmpty())}/video-responses",

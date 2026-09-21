@@ -18,6 +18,12 @@ class LettersRepository(
     private val sessions: SessionManager,
     private val clock: Clock = Clock.systemUTC(),
 ) {
+    suspend fun audio(id: String) = call { api.audio(id, it) }
+    suspend fun audioBytes(url: String) = api.audioBytes(url)
+    suspend fun attachAudio(id: String, bytes: ByteArray): FeatureResult<AudioPreservation> {
+        if (bytes.isEmpty() || bytes.size > 20 * 1024 * 1024) return FeatureResult.Unavailable("Recording must be under 20 MB.")
+        return call { api.attachAudio(id, bytes, it) }
+    }
     suspend fun letters() = call { api.letters(it) }
     suspend fun letter(id: String) = call { api.letter(id, it) }
     suspend fun deliveries() = call { api.deliveries(it) }
@@ -52,16 +58,16 @@ class LettersRepository(
 
     suspend fun create(
         recipientName: String, recipientEmail: String?, selfDelivery: Boolean, subject: String, body: String,
-        mode: DeliveryMode, localDateTime: LocalDateTime?, idempotencyKey: String,
+        mode: DeliveryMode, localDateTime: LocalDateTime?, idempotencyKey: String, circleId: String? = null, circleMemberEmail: String? = null, deliveryTimezone: String = ZoneId.systemDefault().id,
     ): FeatureResult<LetterCreation> {
         val name = recipientName.trim(); val title = subject.trim(); val content = body.trim()
         if (name.isEmpty() || name.length > 100 || title.isEmpty() || title.length > 200 || content.isEmpty() || content.length > 10_000) {
             return FeatureResult.Unavailable("Complete the Letter within the supported limits.")
         }
-        val zone = ZoneId.systemDefault()
+        val zone = runCatching { ZoneId.of(deliveryTimezone) }.getOrNull() ?: return FeatureResult.Unavailable("Choose a valid delivery timezone.")
         val instant = localDateTime?.atZone(zone)?.toInstant()
         val validation = ArtifactDeliveryValidator(clock).validate(ArtifactDeliveryRequest(
-            creatorEmail = "member@narratrace.invalid", selfDelivery = selfDelivery,
+            creatorEmail = "member@narratrace.invalid", selfDelivery = selfDelivery || circleId != null,
             recipientEmail = recipientEmail, mode = mode, deliverAt = instant,
             deliverTimezone = if (mode == DeliveryMode.LATER) zone.id else null,
             deliverLocalDateTime = if (mode == DeliveryMode.LATER) localDateTime else null,
@@ -74,7 +80,7 @@ class LettersRepository(
             if (mode == DeliveryMode.NOW) "now" else "later", instant?.toString(),
             if (mode == DeliveryMode.LATER) zone.id else null,
             if (mode == DeliveryMode.LATER) localDateTime.toString() else null,
-            idempotencyKey, token,
+            idempotencyKey, token, circleId, circleMemberEmail,
         ) }
     }
 
@@ -94,7 +100,7 @@ class LettersRepository(
         return when (result) {
             is ApiResult.Success -> FeatureResult.Success(result.value)
             is ApiResult.Unauthorized -> FeatureResult.AuthenticationRequired
-            is ApiResult.Failure -> FeatureResult.Unavailable(result.message, result.supportReference)
+            is ApiResult.Failure -> FeatureResult.Unavailable(result.message, result.supportReference, result is ApiResult.Offline, result is ApiResult.Forbidden, code = (result as? ApiResult.ServerError)?.rawCode ?: (result as? ApiResult.Forbidden)?.rawCode)
         }
     }
 }

@@ -29,6 +29,7 @@ data class PendingMedia(
     val serverId: String? = null,
     val chunked: Boolean = false,
     val archiveEntitlementId: String? = null,
+    val ownerAccountId: String? = null,
 )
 
 internal fun protectedUploadAttention(items: List<PendingMedia>): String? {
@@ -38,7 +39,7 @@ internal fun protectedUploadAttention(items: List<PendingMedia>): String? {
 }
 
 /** App-private, authenticated-encryption staging. Plaintext is never retained. */
-class ProtectedMediaQueue(private val directory: File, private val cipher: CredentialCipher) {
+class ProtectedMediaQueue(private val directory: File, private val cipher: CredentialCipher, private val owner: (() -> String?)? = null) {
     private val index = File(directory, "queue.bin")
 
     @Synchronized fun enqueue(
@@ -48,6 +49,8 @@ class ProtectedMediaQueue(private val directory: File, private val cipher: Crede
     ): PendingMedia? {
         if (bytes.isEmpty() || bytes.size > MAX_BYTES || filename.contains('/') || filename.contains('\\') ||
             (archiveEntitlementId != null && !ARCHIVE_ID.matches(archiveEntitlementId))) return null
+        val ownerId = owner?.invoke()
+        if (owner != null && ownerId == null) return null
         directory.mkdirs()
         val id = UUID.randomUUID().toString()
         val encrypted = cipher.encrypt(bytes) ?: return null
@@ -57,9 +60,9 @@ class ProtectedMediaQueue(private val directory: File, private val cipher: Crede
         val item = PendingMedia(
             id, kind, blobName, filename.take(200), mimeType, bytes.size,
             MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) },
-            interviewId, idempotencyKey, archiveEntitlementId = archiveEntitlementId,
+            interviewId, idempotencyKey, archiveEntitlementId = archiveEntitlementId, ownerAccountId = ownerId,
         )
-        if (!save(items() + item)) { blob.delete(); return null }
+        if (!save(itemsFor(ownerId) + item, ownerId)) { blob.delete(); return null }
         return item
     }
 
@@ -70,6 +73,8 @@ class ProtectedMediaQueue(private val directory: File, private val cipher: Crede
     ): PendingMedia? {
         if (kind !in setOf(PendingMediaKind.StandaloneVideo, PendingMediaKind.InterviewVideo) || filename.contains('/') || filename.contains('\\') ||
             (archiveEntitlementId != null && !ARCHIVE_ID.matches(archiveEntitlementId))) return null
+        val ownerId = owner?.invoke()
+        if (owner != null && ownerId == null) return null
         directory.mkdirs()
         val id = UUID.randomUUID().toString()
         val temporary = File(directory, "$id.chunks.tmp").apply { mkdirs() }
@@ -100,20 +105,27 @@ class ProtectedMediaQueue(private val directory: File, private val cipher: Crede
         val item = PendingMedia(
             id, kind, final.name, filename.take(200), mimeType, total.toInt(),
             digest.digest().joinToString("") { "%02x".format(it) }, interviewId, idempotencyKey,
-            chunked = true, archiveEntitlementId = archiveEntitlementId,
+            chunked = true, archiveEntitlementId = archiveEntitlementId, ownerAccountId = ownerId,
         )
-        if (!save(items() + item)) { final.deleteRecursively(); return null }
+        if (!save(itemsFor(ownerId) + item, ownerId)) { final.deleteRecursively(); return null }
         return item
     }
 
+    private fun belongsToAccount(item: PendingMedia, ownerId: String?): Boolean = owner == null || (ownerId != null && item.ownerAccountId == ownerId)
+    private fun itemsFor(ownerId: String?): List<PendingMedia> = allItems().filter { belongsToAccount(it, ownerId) }
     @Synchronized fun items(): List<PendingMedia> {
+        val ownerId = owner?.invoke()
+        return itemsFor(ownerId)
+    }
+    private fun allItems(): List<PendingMedia> {
         val encrypted = runCatching { index.takeIf(File::exists)?.readBytes() }.getOrNull() ?: return emptyList()
         val plain = cipher.decrypt(encrypted) ?: return emptyList()
         return runCatching { NarratraceJson.decodeFromString<List<PendingMedia>>(plain.decodeToString()) }.getOrDefault(emptyList())
     }
 
     @Synchronized fun read(item: PendingMedia): ByteArray? {
-        if (item.chunked) return null
+        val ownerId = owner?.invoke()
+        if (!belongsToAccount(item, ownerId) || item.chunked) return null
         val file = File(directory, item.encryptedFilename)
         if (file.parentFile != directory || !file.exists()) return null
         val plain = cipher.decrypt(runCatching { file.readBytes() }.getOrNull() ?: return null) ?: return null
@@ -121,7 +133,8 @@ class ProtectedMediaQueue(private val directory: File, private val cipher: Crede
     }
 
     @Synchronized fun readRange(item: PendingMedia, offset: Int, maximum: Int): ByteArray? {
-        if (!item.chunked || offset !in 0 until item.byteCount || maximum <= 0) return null
+        val ownerId = owner?.invoke()
+        if (!belongsToAccount(item, ownerId) || !item.chunked || offset !in 0 until item.byteCount || maximum <= 0) return null
         val folder = File(directory, item.encryptedFilename)
         if (folder.parentFile != directory || !folder.isDirectory) return null
         val output = ByteArrayOutputStream(minOf(maximum, item.byteCount - offset))
@@ -139,40 +152,60 @@ class ProtectedMediaQueue(private val directory: File, private val cipher: Crede
         return output.toByteArray()
     }
 
-    @Synchronized fun markAttempt(id: String) = save(items().map { if (it.id == id) it.copy(attempts = it.attempts + 1) else it })
+    @Synchronized fun markAttempt(id: String): Boolean {
+        val ownerId = owner?.invoke()
+        return save(itemsFor(ownerId).map { if (it.id == id) it.copy(attempts = it.attempts + 1) else it }, ownerId)
+    }
 
-    @Synchronized fun setAuthorization(id: String, uploadUrl: String, serverId: String): Boolean =
-        save(items().map { if (it.id == id) it.copy(uploadUrl = uploadUrl, serverId = serverId) else it })
+    @Synchronized fun setAuthorization(id: String, uploadUrl: String, serverId: String): Boolean {
+        val ownerId = owner?.invoke()
+        return save(itemsFor(ownerId).map { if (it.id == id) it.copy(uploadUrl = uploadUrl, serverId = serverId) else it }, ownerId)
+    }
 
     /** Binds offline standalone captures only after the member chooses a storyteller. */
     @Synchronized fun assignArchiveToUnscopedStandalone(archiveEntitlementId: String): Boolean {
         if (!ARCHIVE_ID.matches(archiveEntitlementId)) return false
-        val current = items()
+        val ownerId = owner?.invoke()
+        val current = itemsFor(ownerId)
         if (current.none { it.archiveEntitlementId == null && it.kind in STANDALONE_KINDS }) return true
         return save(current.map { item ->
             if (item.archiveEntitlementId == null && item.kind in STANDALONE_KINDS) {
                 item.copy(archiveEntitlementId = archiveEntitlementId)
             } else item
-        })
+        }, ownerId)
     }
 
     @Synchronized fun acknowledgeAndRemove(id: String): Boolean {
-        val current = items(); val target = current.firstOrNull { it.id == id } ?: return true
-        if (!save(current.filterNot { it.id == id })) return false
+        val ownerId = owner?.invoke()
+        val current = itemsFor(ownerId); val target = current.firstOrNull { it.id == id } ?: return true
+        if (!save(current.filterNot { it.id == id }, ownerId)) return false
         val file = File(directory, target.encryptedFilename)
         return if (target.chunked) file.deleteRecursively() || !file.exists() else file.delete() || !file.exists()
     }
 
-    /** Permanently removes every account-bound staged artefact and its key. */
+    /** Purges only this account; unbound legacy files and other owners stay encrypted. */
     @Synchronized fun purgeAccountData(): Boolean {
+        val ownerId = owner?.invoke()
+        if (owner != null && ownerId == null) return false
+        val owned = itemsFor(ownerId)
+        var removed = true
+        owned.forEach { item ->
+            val target = File(directory, item.encryptedFilename)
+            if (target.parentFile != directory || (target.exists() && !target.deleteRecursively())) removed = false
+        }
+        if (!removed || !save(emptyList(), ownerId)) return false
+        if (allItems().isNotEmpty()) return true
         val filesRemoved = runCatching { !directory.exists() || directory.deleteRecursively() }.getOrDefault(false)
         val keyDestroyed = (cipher as? io.narratrace.android.core.auth.KeystoreCredentialCipher)?.destroyKey() ?: true
         return filesRemoved && keyDestroyed
     }
 
-    private fun save(value: List<PendingMedia>): Boolean {
+    private fun save(value: List<PendingMedia>, ownerId: String?): Boolean {
+        if (owner != null && ownerId == null) return false
+        if (value.any { !belongsToAccount(it, ownerId) }) return false
+        val merged = allItems().filterNot { belongsToAccount(it, ownerId) } + value
         directory.mkdirs()
-        val encrypted = cipher.encrypt(NarratraceJson.encodeToString(value).encodeToByteArray()) ?: return false
+        val encrypted = cipher.encrypt(NarratraceJson.encodeToString(merged).encodeToByteArray()) ?: return false
         return atomicWrite(index, encrypted)
     }
 

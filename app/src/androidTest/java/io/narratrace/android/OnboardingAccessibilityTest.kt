@@ -18,6 +18,20 @@ import org.junit.Test
 class OnboardingAccessibilityTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun trial_access_actions_preserve_story_and_refresh_without_purchase_steering() {
+        var opens = 0; var refreshes = 0
+        compose.setContent { io.narratrace.android.core.ui.NarratraceTheme {
+            androidx.compose.foundation.layout.Column {
+                io.narratrace.android.app.TrialAccessActions(true, { opens++ }, { refreshes++ })
+            }
+        } }
+        compose.onNodeWithText("Your complimentary interview is complete. You can still open your existing story.").assertIsDisplayed()
+        compose.onNodeWithText("Open existing story").performClick()
+        compose.onNodeWithText("Refresh access").performClick()
+        compose.runOnIdle { assertEquals(1, opens); assertEquals(1, refreshes) }
+        compose.onNodeWithText("View plans").assertDoesNotExist()
+    }
+
     @Test fun library_sample_and_insight_remain_readable_in_phone_scroll() {
         compose.setContent {
             io.narratrace.android.core.ui.NarratraceTheme {

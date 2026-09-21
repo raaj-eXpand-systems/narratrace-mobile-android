@@ -20,7 +20,7 @@ import kotlin.time.Duration.Companion.minutes
  */
 class SessionManagerTest {
 
-    private val now = 1_754_000_000_000L
+    private var now = 1_754_000_000_000L
 
     private fun session(
         expiresInMinutes: Long = 15,
@@ -122,15 +122,21 @@ class SessionManagerTest {
     }
 
     @Test
-    fun `an inactive session locks without discarding the account`() = runTest {
-        val manager = manager(session(lastActiveMinutesAgo = 31)) {
-            ApiResult.Success(TokenPair("a", "r", instant(now)), "s")
+    fun `ordinary inactivity restores the account without forcing sign in`() = runTest {
+        val manager = manager(session(lastActiveMinutesAgo = 60 * 24 * 7)) {
+            error("A valid server token does not need rotation")
         }
-        assertTrue(manager.accessToken() is TokenLease.Locked)
-        val state = manager.state.value
-        assertTrue(state is AuthState.Locked)
-        assertEquals("account-1", (state as AuthState.Locked).accountId)
-        assertEquals("ntm_at_current", manager.lifecycleCredential())
+        assertTrue(manager.accessToken() is TokenLease.Valid)
+        assertTrue(manager.state.value is AuthState.Authenticated)
+    }
+
+    @Test
+    fun `return after long inactivity rotates expired token without losing the account`() = runTest {
+        val manager = manager(session(expiresInMinutes = -1, lastActiveMinutesAgo = 60 * 24 * 7)) {
+            ApiResult.Success(TokenPair("new-access", "new-refresh", instant(now + 900_000)), "s")
+        }
+        assertEquals("new-access", (manager.accessToken() as TokenLease.Valid).accessToken)
+        assertTrue(manager.state.value is AuthState.Authenticated)
     }
 
     @Test
@@ -181,6 +187,71 @@ class SessionManagerTest {
         assertEquals(null, manager.lifecycleCredential())
     }
 
+    @Test
+    fun `late successful refresh cannot resurrect explicit signout`() = runTest {
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val response = kotlinx.coroutines.CompletableDeferred<ApiResult<TokenPair>>()
+        val manager = manager(session(expiresInMinutes = -1)) { started.complete(Unit); response.await() }
+        val pending = async { manager.accessToken() }
+        started.await()
+        manager.signOut()
+        response.complete(ApiResult.Success(TokenPair("late-access", "late-refresh", instant(now + 900_000)), ""))
+        assertEquals(TokenLease.SignedOut, pending.await())
+        assertEquals(AuthState.SignedOut, manager.state.value)
+        assertEquals(null, manager.lifecycleCredential())
+    }
+
+    @Test
+    fun `late successful refresh cannot overwrite a newly adopted account`() = runTest {
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val response = kotlinx.coroutines.CompletableDeferred<ApiResult<TokenPair>>()
+        val manager = manager(session(expiresInMinutes = -1)) { started.complete(Unit); response.await() }
+        val pending = async { manager.accessToken() }
+        started.await()
+        assertTrue(manager.adopt(TokenPair("new-access", "new-refresh", instant(now + 900_000)), "new-account"))
+        response.complete(ApiResult.Success(TokenPair("late-access", "late-refresh", instant(now + 900_000)), ""))
+        assertEquals(TokenLease.Unavailable, pending.await())
+        assertEquals("new-account", (manager.state.value as AuthState.Authenticated).session.accountId)
+        assertEquals("new-access", manager.lifecycleCredential())
+    }
+
+    @Test
+    fun `late rejected refresh cannot clear newly adopted credentials`() = runTest {
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val response = kotlinx.coroutines.CompletableDeferred<ApiResult<TokenPair>>()
+        val manager = manager(session(expiresInMinutes = -1)) { started.complete(Unit); response.await() }
+        val pending = async { manager.accessToken() }
+        started.await()
+        assertTrue(manager.adopt(TokenPair("new-access", "new-refresh", instant(now + 900_000)), "account-1"))
+        response.complete(ApiResult.Unauthorized("Revoked", ""))
+        assertEquals(TokenLease.Unavailable, pending.await())
+        assertEquals("new-access", manager.lifecycleCredential())
+        assertEquals("new-refresh", (manager.state.value as AuthState.Authenticated).session.refreshToken)
+    }
+
+    @Test
+    fun `old account rejection cannot receive a newly adopted account token`() = runTest {
+        val manager = manager(session()) { error("Must not refresh another account") }
+        assertTrue(manager.adopt(TokenPair("other-access", "other-refresh", instant(now + 900_000)), "other-account"))
+        assertEquals(TokenLease.Unavailable, manager.recoverFromUnauthorized("ntm_at_current"))
+        assertEquals("other-access", manager.lifecycleCredential())
+    }
+
+    @Test
+    fun `queued token request cannot follow account adoption across refresh mutex`() = runTest {
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val response = kotlinx.coroutines.CompletableDeferred<ApiResult<TokenPair>>()
+        val manager = manager(session(expiresInMinutes = -1)) { started.complete(Unit); response.await() }
+        val refreshing = async { manager.accessToken() }
+        started.await()
+        val queued = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { manager.accessToken() }
+        assertTrue(manager.adopt(TokenPair("other-access", "other-refresh", instant(now + 900_000)), "other-account"))
+        response.complete(ApiResult.Success(TokenPair("late-access", "late-refresh", instant(now + 900_000)), ""))
+        assertEquals(TokenLease.Unavailable, refreshing.await())
+        assertEquals(TokenLease.Unavailable, queued.await())
+        assertEquals("other-access", manager.lifecycleCredential())
+    }
+
     // ── harness ──────────────────────────────────────────────────────────────
 
     private fun instant(millis: Long): String =
@@ -210,7 +281,6 @@ class SessionManagerTest {
         val manager = SessionManager(
             store = store,
             refresher = SessionRefresher { refresh(it) },
-            inactivityGate = InactivityGate(),
             clock = { now },
         )
         if (restoreFirst) manager.restore()

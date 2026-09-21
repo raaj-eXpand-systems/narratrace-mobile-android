@@ -75,7 +75,7 @@ class ProductionLanguageContractTest {
         assertTrue(source.contains("Video is not included in this plan."))
         assertTrue(source.contains("remaining"))
         assertTrue(source.contains("heightIn(min = 48.dp)"))
-        assertTrue(source.contains("creationMessage = made.message"))
+        assertTrue(source.contains("else made.message"))
         assertTrue(source.contains("liveRegion = LiveRegionMode.Assertive"))
     }
 

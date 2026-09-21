@@ -10,6 +10,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MediaAndInterviewRepositoryTest {
+    @Test fun `upload lease rejects switched account and ABA credential before queued data is sent`() {
+        val a = io.narratrace.android.core.auth.MobileSession("token-a", "refresh-a", Long.MAX_VALUE, "a", 0)
+        val b = a.copy(accountId = "b", accessToken = "token-b")
+        fun authenticated(session: io.narratrace.android.core.auth.MobileSession) = io.narratrace.android.core.auth.AuthState.Authenticated(session)
+        assertTrue(uploadLeaseMatches(authenticated(a), "a", "token-a"))
+        assertFalse(uploadLeaseMatches(authenticated(b), "a", "token-b"))
+        assertFalse(uploadLeaseMatches(authenticated(a), "a", "token-b"))
+        assertFalse(uploadLeaseMatches(authenticated(a.copy(accessToken = "rotated-a")), "a", "token-a"))
+        assertFalse(uploadLeaseMatches(io.narratrace.android.core.auth.AuthState.SignedOut, "a", "token-a"))
+    }
+
     @Test fun `processing cap keeps queued originals without automatic retry`() {
         val message = "AI processing is paused. Your saved content and Nia remain available."
         val issue = reconciliationIssue(ApiResult.RateLimited(message, null, "budget-support"))

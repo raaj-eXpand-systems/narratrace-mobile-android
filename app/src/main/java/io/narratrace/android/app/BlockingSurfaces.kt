@@ -9,6 +9,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -58,7 +60,7 @@ internal fun BlockedPeopleScreen(container: AppContainer, modifier: Modifier, cl
         item { TextButton(onClick = close) { Text("Back to preferences") }; Text("Blocked people", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
         item { Text("Only people you blocked appear here. Account references protect their private contact information. Unblocking does not restore memberships, sharing, or deliveries.") }
         when (val loaded = result) {
-            null -> item { CircularProgressIndicator() }
+            null -> item { Text("Loading blocked people…"); CircularProgressIndicator(Modifier.semantics { contentDescription = "Loading blocked people" }) }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to view blocked people.", color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Unavailable -> item { Text(loaded.message, color = MaterialTheme.colorScheme.error); TextButton(onClick = { refresh++ }) { Text("Retry") } }
             is FeatureResult.Success -> {

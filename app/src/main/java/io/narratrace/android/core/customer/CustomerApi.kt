@@ -86,6 +86,14 @@ data class AccountSummary(
     val deliveryContact: DeliveryContact? = null,
 )
 
+fun AccountSummary.canStartGuidedInterview(): Boolean =
+    capabilities.captureMemories && (!isTrialPlan() || experiment?.resourceState != "completed")
+
+fun AccountSummary.isTrialPlan(): Boolean {
+    val purchased = hasAccess && productFamily != null && productTier != null
+    return !purchased && (experiment?.experienceFirst == true || status == "trial_active" || status == "trial_extended")
+}
+
 /**
  * The server keeps the historical `experiment` field name for API compatibility,
  * but `experienceFirst` now reflects the customer's saved onboarding choice.
@@ -154,7 +162,7 @@ data class PeopleList(val mode: String, val people: List<RemotePerson>)
 @Serializable data class PersonResponse(val person: RemotePerson)
 @Serializable private data class PersonInput(val name: String, val relation: String)
 @Serializable data class PersonUpdated(val updated: Boolean)
-@Serializable data class SearchResult(val id: String, val resourceId: String, val kind: String, val title: String, val subtitle: String)
+@Serializable data class SearchResult(val id: String, @Serializable(with = ResourceIdentifierSerializer::class) val resourceId: String, val kind: String, val title: String, val subtitle: String)
 @Serializable data class SearchResponse(val query: String, val results: List<SearchResult>)
 @Serializable data class ActivityPage(val items: List<ActivityItem>, val nextCursor: String? = null)
 
@@ -293,3 +301,17 @@ class CustomerApi(private val client: NarratraceApiClient) : CustomerGateway {
 @Suppress("DEPRECATION")
 private fun encodePathSegment(value: String): String =
     URLEncoder.encode(value, "UTF-8").replace("+", "%20")
+
+/** Historic media search IDs are JSON integers; all resource routes use strings. */
+internal object ResourceIdentifierSerializer : kotlinx.serialization.KSerializer<String> {
+    override val descriptor = kotlinx.serialization.descriptors.PrimitiveSerialDescriptor("ResourceIdentifier", kotlinx.serialization.descriptors.PrimitiveKind.STRING)
+    override fun serialize(encoder: kotlinx.serialization.encoding.Encoder, value: String) = encoder.encodeString(value)
+    override fun deserialize(decoder: kotlinx.serialization.encoding.Decoder): String {
+        val json = decoder as? kotlinx.serialization.json.JsonDecoder ?: return decoder.decodeString()
+        val value = json.decodeJsonElement() as? kotlinx.serialization.json.JsonPrimitive
+            ?: throw kotlinx.serialization.SerializationException("Invalid search item identifier")
+        val content = value.content
+        if (value === kotlinx.serialization.json.JsonNull || (!value.isString && !content.matches(Regex("[0-9]+")))) throw kotlinx.serialization.SerializationException("Invalid search item identifier")
+        return content
+    }
+}

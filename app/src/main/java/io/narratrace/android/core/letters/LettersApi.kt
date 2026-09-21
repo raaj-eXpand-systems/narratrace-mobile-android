@@ -8,6 +8,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.serializer
 
+@Serializable data class AudioPreservation(val preserved: Boolean)
 @Serializable data class LetterSummary(
     val id: String, val recipientName: String, val subject: String, val unlockAt: String,
     val delivered: Boolean, val recipientVerified: Boolean, val deliveryState: String,
@@ -28,6 +29,7 @@ import kotlinx.serialization.serializer
     val recipientName: String, val recipientEmail: String? = null, val selfDelivery: Boolean,
     val subject: String, val body: String, val deliveryMode: String, val deliverAt: String? = null,
     val deliverTimezone: String? = null, val deliverLocalDatetime: String? = null,
+    val circleId: String? = null, val circleMemberEmail: String? = null,
 )
 @Serializable data class ArtifactDelivery(
     val id: String, val uploadId: Int? = null, val letterId: String? = null, val keepsakeBookId: String? = null, val artifactKind: String, val recipientName: String,
@@ -71,14 +73,21 @@ internal fun LetterDetail.canDisplayContent(): Boolean =
 )
 
 class LettersApi(private val client: NarratraceApiClient) {
+    suspend fun audio(id: String, token: String): ApiResult<io.narratrace.android.core.media.ProtectedPlayback> = client.get("/api/v1/letters/${segment(id)}/audio", serializer<io.narratrace.android.core.media.ProtectedPlayback>(), token)
+    suspend fun attachAudio(id: String, bytes: ByteArray, token: String): ApiResult<AudioPreservation> = client.postBytes(
+        "/api/v1/letters/${segment(id)}/audio", bytes, "audio/mp4",
+        java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) },
+        serializer<AudioPreservation>(), token, java.util.UUID.randomUUID().toString(),
+    )
+    suspend fun audioBytes(url: String) = client.getSignedStorage(url, 20 * 1024 * 1024)
     suspend fun letters(token: String): ApiResult<LetterList> = client.get("/api/v1/letters", serializer<LetterList>(), token)
     suspend fun letter(id: String, token: String): ApiResult<LetterDetailResponse> = client.get("/api/v1/letters/${segment(id)}", serializer<LetterDetailResponse>(), token)
     suspend fun create(
         recipientName: String, recipientEmail: String?, selfDelivery: Boolean, subject: String, body: String,
-        deliveryMode: String, deliverAt: String?, timezone: String?, localDateTime: String?, key: String, token: String,
+        deliveryMode: String, deliverAt: String?, timezone: String?, localDateTime: String?, key: String, token: String, circleId: String? = null, circleMemberEmail: String? = null,
     ): ApiResult<LetterCreation> = client.post(
         "/api/v1/letters", NarratraceJson.encodeToString(CreateLetter(
-            recipientName, recipientEmail, selfDelivery, subject, body, deliveryMode, deliverAt, timezone, localDateTime,
+            recipientName, recipientEmail, selfDelivery, subject, body, deliveryMode, deliverAt, timezone, localDateTime, circleId, circleMemberEmail,
         )), serializer<LetterCreation>(), token, key,
     )
     suspend fun manage(id: String, action: String, email: String?, token: String): ApiResult<LetterManagement> = client.patch(

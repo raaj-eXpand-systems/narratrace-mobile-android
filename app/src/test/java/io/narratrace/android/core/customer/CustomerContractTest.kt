@@ -9,6 +9,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CustomerContractTest {
+    @Test fun `numeric media search identifiers remain actionable with uuid resource ids`() {
+        val result = NarratraceJson.decodeFromString<SearchResponse>("""{"query":"story","results":[{"id":"media:42","resourceId":42,"kind":"photo","title":"Photo","subtitle":"Memory"},{"id":"interview:uuid","resourceId":"uuid","kind":"interview","title":"Story","subtitle":""}]}""")
+        assertEquals(listOf("42", "uuid"), result.results.map { it.resourceId })
+        assertTrue(runCatching { NarratraceJson.decodeFromString<SearchResponse>("""{"query":"story","results":[{"id":"bad","resourceId":true,"kind":"photo","title":"Photo","subtitle":""}]}""") }.isFailure)
+    }
+
+    @Test
+    fun `trial workspace gate matches web without restricting purchased products or archive only accounts`() {
+        val base = NarratraceJson.decodeFromString<AccountSummary>(
+            """{"status":"trial_active","hasAccess":false,"canReadArchive":true,"storage":{"usedBytes":0,"availableBytes":0,"totalBytes":0,"usedLabel":"0 B","availableLabel":"0 B","totalLabel":"0 B","usedPercent":0},"capabilities":{"captureMemories":true,"createLetters":false,"managePeople":false,"familyCircles":false}}"""
+        )
+        assertTrue(base.isTrialPlan())
+        assertTrue(base.canStartGuidedInterview())
+        assertFalse(base.copy(experiment = AccountExperiment("B", true, "completed")).canStartGuidedInterview())
+        assertFalse(base.copy(capabilities = base.capabilities.copy(captureMemories = false)).canStartGuidedInterview())
+        assertTrue(base.copy(hasAccess = true, productFamily = "a_life", productTier = "essential", experiment = AccountExperiment("B", true, "completed")).canStartGuidedInterview())
+        assertTrue(base.copy(status = "trial_extended").isTrialPlan())
+        assertTrue(base.copy(status = "invited", experiment = AccountExperiment("B", true, "completed")).isTrialPlan())
+        assertFalse(base.copy(status = "lapsed").isTrialPlan())
+        assertFalse(base.copy(status = "vault_only").isTrialPlan())
+        assertFalse(base.copy(status = "subscription_active", hasAccess = true, productFamily = "a_life", productTier = "essential", experiment = AccountExperiment("B", true, "completed")).isTrialPlan())
+    }
+
     @Test
     fun `account projection accepts every production product without a native catalog`() {
         val products = listOf(

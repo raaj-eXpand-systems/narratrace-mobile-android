@@ -21,11 +21,12 @@ class AccountManagementLifecycleTest {
     }
 
     @Test
-    fun `account closure link is direct and purchase calls to action are absent`() {
+    fun `account closure remains direct and free companion has no purchasing link`() {
         val source = File("src/main/java/io/narratrace/android/app/NarratraceApp.kt").readText()
 
         assertEquals("https://www.narratrace.io/account?client=android#closure", ACCOUNT_CLOSURE_URL)
-        assertFalse(source.contains("/subscribe"))
+        assertFalse(source.contains("https://www.narratrace.io/subscribe"))
+        assertTrue(source.contains("TrialFeatureGate"))
         assertFalse(source.contains("Review Narratrace plans"))
         assertFalse(source.contains("purchase a plan"))
     }

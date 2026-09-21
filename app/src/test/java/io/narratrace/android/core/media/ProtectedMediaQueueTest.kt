@@ -10,6 +10,58 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProtectedMediaQueueTest {
+    @Test fun `account switch during media purge preserves new owners files and index`() {
+        val folder = java.nio.file.Files.createTempDirectory("media-purge-race").toFile()
+        var owner: String? = "a"
+        var switchDuringRead = false
+        var ownerReads = 0
+        val cipher = object : io.narratrace.android.core.auth.CredentialCipher {
+            override fun encrypt(plaintext: ByteArray) = plaintext.reversedArray()
+            override fun decrypt(ciphertext: ByteArray): ByteArray {
+                if (switchDuringRead) { switchDuringRead = false; owner = "b" }
+                return ciphertext.reversedArray()
+            }
+        }
+        val queue = ProtectedMediaQueue(folder, cipher) { ownerReads++; owner }
+        queue.enqueue(byteArrayOf(1), PendingMediaKind.Photo, "a.jpg", "image/jpeg")!!
+        owner = "b"
+        val b = queue.enqueue(byteArrayOf(2), PendingMediaKind.Photo, "b.jpg", "image/jpeg")!!
+        owner = "a"; ownerReads = 0; switchDuringRead = true
+        org.junit.Assert.assertTrue(queue.purgeAccountData())
+        org.junit.Assert.assertEquals(1, ownerReads)
+        org.junit.Assert.assertEquals(b.id, queue.items().single().id)
+        org.junit.Assert.assertArrayEquals(byteArrayOf(2), queue.read(b))
+        owner = "a"
+        org.junit.Assert.assertTrue(queue.items().isEmpty())
+    }
+
+    @Test fun `account switch quarantines legacy and foreign captures without deleting originals`() {
+        val folder = java.nio.file.Files.createTempDirectory("media-owner").toFile()
+        val cipher = object : io.narratrace.android.core.auth.CredentialCipher {
+            override fun encrypt(plaintext: ByteArray) = plaintext.reversedArray()
+            override fun decrypt(ciphertext: ByteArray) = ciphertext.reversedArray()
+        }
+        val legacy = ProtectedMediaQueue(folder, cipher)
+        legacy.enqueue(byteArrayOf(1), PendingMediaKind.Photo, "legacy.jpg", "image/jpeg")
+        var owner: String? = "a"
+        val queue = ProtectedMediaQueue(folder, cipher) { owner }
+        org.junit.Assert.assertTrue(queue.items().isEmpty())
+        val a = queue.enqueue(byteArrayOf(2), PendingMediaKind.Photo, "a.jpg", "image/jpeg")!!
+        owner = "b"
+        org.junit.Assert.assertTrue(queue.items().isEmpty())
+        org.junit.Assert.assertNull(queue.read(a))
+        queue.enqueue(byteArrayOf(3), PendingMediaKind.Photo, "b.jpg", "image/jpeg")!!
+        owner = null
+        org.junit.Assert.assertTrue(queue.items().isEmpty())
+        org.junit.Assert.assertNull(queue.enqueue(byteArrayOf(4), PendingMediaKind.Photo, "none.jpg", "image/jpeg"))
+        owner = "a"
+        org.junit.Assert.assertEquals(a.id, queue.items().single().id)
+        org.junit.Assert.assertTrue(queue.purgeAccountData())
+        owner = "b"
+        org.junit.Assert.assertEquals("b.jpg", queue.items().single().originalFilename)
+        org.junit.Assert.assertEquals(2, legacy.items().size)
+    }
+
     private val cipher = object : CredentialCipher {
         override fun encrypt(plaintext: ByteArray) = byteArrayOf(42) + plaintext.reversedArray()
         override fun decrypt(ciphertext: ByteArray) = ciphertext.takeIf { it.firstOrNull() == 42.toByte() }?.drop(1)?.toByteArray()?.reversedArray()

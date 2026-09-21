@@ -123,6 +123,8 @@ import io.narratrace.android.core.customer.ProductionAllowance
 import io.narratrace.android.core.customer.WrittenMemoryResult
 import io.narratrace.android.core.customer.CustomerMemoryResult
 import io.narratrace.android.core.customer.hasGuidedInterviewOnlyAccess
+import io.narratrace.android.core.customer.isTrialPlan
+import io.narratrace.android.core.customer.canStartGuidedInterview
 import io.narratrace.android.core.media.FeatureResult
 import io.narratrace.android.core.media.InterviewDetail
 import io.narratrace.android.core.media.InterviewSummary
@@ -289,12 +291,13 @@ fun NarratraceApp(container: AppContainer) {
     if (resolution == null) { ProtectedLoadingScreen(); return }
     if (resolution is RuntimeResolution.Blocked) {
         val hasKnownLocalAccount = authState is AuthState.Authenticated || authState is AuthState.Locked
-        if (offlineCapture && hasKnownLocalAccount) {
+        val canCaptureOffline = authState is AuthState.Authenticated && container.customerRepository.lastVerifiedAccount()?.let { it.hasAccess && !it.isTrialPlan() } == true
+        if (offlineCapture && canCaptureOffline) {
             OfflineCaptureScreen(container, Modifier) { offlineCapture = false }
         } else {
             RuntimeBlockedScreen(
                 resolution = resolution,
-                canCaptureOffline = hasKnownLocalAccount,
+                canCaptureOffline = canCaptureOffline,
                 captureOffline = { offlineCapture = true },
                 signOut = if (hasKnownLocalAccount) container.sessionManager::signOut else null,
                 retry = { runtimeResolution = null; runtimeRefresh++ },
@@ -309,7 +312,7 @@ fun NarratraceApp(container: AppContainer) {
         is AuthState.Locked -> LockedLifecycleGate(container) {
             SignInScreen(container = container, returning = true)
         }
-        is AuthState.Authenticated -> AccountLifecycleGate(
+        is AuthState.Authenticated -> androidx.compose.runtime.key((authState as AuthState.Authenticated).session.accountId) { AccountLifecycleGate(
             container = container,
             accessCredential = (authState as AuthState.Authenticated).session.accessToken,
         ) {
@@ -322,7 +325,7 @@ fun NarratraceApp(container: AppContainer) {
                     )
                 }
             }
-        }
+        } }
     }
 }
 
@@ -407,10 +410,21 @@ private fun AccountLifecycleGate(
     content: @Composable () -> Unit,
 ) {
     val appContext = LocalContext.current.applicationContext
-    var result by remember(accessCredential) { mutableStateOf<ApiResult<AccountLifecycleSignal>?>(null) }
+    var result by remember { mutableStateOf<ApiResult<AccountLifecycleSignal>?>(null) }
     var refresh by remember { mutableIntStateOf(0) }
     var localPurgeFailed by remember { mutableStateOf(false) }
-    LaunchedEffect(accessCredential, refresh) { result = container.accountLifecycleApi.signal(accessCredential) }
+    LaunchedEffect(accessCredential, refresh) {
+        val checked = container.accountLifecycleApi.signal(accessCredential)
+        if (checked is ApiResult.Unauthorized && (result as? ApiResult.Success)?.value?.allowsOrdinaryAccess() == true) {
+            // Rotation must not dispose an in-progress recorder or draft. The server
+            // remains authoritative for every protected operation.
+            when (container.sessionManager.recoverFromUnauthorized(accessCredential)) {
+                TokenLease.Unavailable -> Unit
+                is TokenLease.Valid -> Unit
+                else -> result = checked
+            }
+        } else if (!(checked is ApiResult.Offline && (result as? ApiResult.Success)?.value?.allowsOrdinaryAccess() == true)) result = checked
+    }
     when (val current = result) {
         null -> ProtectedLoadingScreen()
         is ApiResult.Unauthorized -> {
@@ -924,12 +938,14 @@ private fun AuthenticatedShell(
     // New and returning customers both begin at Reception.
     LaunchedEffect(Unit) { container.onboardingStore.finishJourney() }
     var invite by remember { mutableStateOf(container.pendingInvite) }
+    var inviteError by remember { mutableStateOf<String?>(null) }
+    var decidingInvite by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     invite?.let { pending -> AlertDialog(
         onDismissRequest = {}, title = { Text(if (pending.kind == "family") "Join this family?" else "Join this Circle?") },
-        text = { Text("Accepting grants access only according to the invitation. It does not automatically share your existing content.") },
-        confirmButton = { Button(onClick = { scope.launch { if (pending.kind == "family") container.familyRepository.decideFamily(pending.token, true) else container.familyRepository.decideCircle(pending.token, true); container.pendingInvite = null; invite = null } }) { Text("Accept invitation") } },
-        dismissButton = { TextButton(onClick = { scope.launch { if (pending.kind == "family") container.familyRepository.decideFamily(pending.token, false) else container.familyRepository.decideCircle(pending.token, false); container.pendingInvite = null; invite = null } }) { Text("Decline") } },
+        text = { Column { Text("Accepting grants access only according to the invitation. It does not automatically share your existing content."); inviteError?.let { Text(it, color = MaterialTheme.colorScheme.error) } } },
+        confirmButton = { Button(onClick = { decidingInvite = true; scope.launch { val decision = if (pending.kind == "family") container.familyRepository.decideFamily(pending.token, true) else container.familyRepository.decideCircle(pending.token, true); if (decision is FeatureResult.Success) { container.pendingInvite = null; invite = null } else inviteError = decision.failureMessage(); decidingInvite = false } }, enabled = !decidingInvite) { Text("Accept invitation") } },
+        dismissButton = { TextButton(onClick = { decidingInvite = true; scope.launch { val decision = if (pending.kind == "family") container.familyRepository.decideFamily(pending.token, false) else container.familyRepository.decideCircle(pending.token, false); if (decision is FeatureResult.Success) { container.pendingInvite = null; invite = null } else inviteError = decision.failureMessage(); decidingInvite = false } }, enabled = !decidingInvite) { Text("Decline") } },
     ) }
     Scaffold(
         bottomBar = {
@@ -1000,7 +1016,7 @@ private fun CustomerMoreScreen(
     if (feedbackOpen) { FeedbackSupportScreen(container, modifier) { feedbackOpen = false }; return }
     if (permissionsOpen) { PrivacyPermissionsScreen(modifier) { permissionsOpen = false }; return }
     if (activityOpen) { ActivityScreen(container, modifier) { activityOpen = false }; return }
-    if (resourcesOpen) { WebResourcesScreen(modifier) { resourcesOpen = false }; return }
+    if (resourcesOpen) { WebResourcesScreen(container, modifier) { resourcesOpen = false }; return }
     if (closureOpen) { AccountClosureScreen(container, modifier) { closureOpen = false }; return }
     LaunchedEffect(refreshKey) {
         account = container.customerRepository.loadAccount()
@@ -1099,7 +1115,7 @@ private fun CustomerMoreScreen(
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Plan", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "${current.value.plan.planLabel()} · ${current.value.status.statusLabel()}",
+                            if (current.value.isTrialPlan()) "Plan: Trial" else "${current.value.plan.planLabel()} · ${current.value.status.statusLabel()}",
                             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                         )
                         current.value.billingCycle?.let { Text("Billing: ${it.replace('_', ' ').replaceFirstChar(Char::uppercase)}", color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -1420,7 +1436,7 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
 }
 
 @Composable
-private fun FamilySharingScreen(container: AppContainer, modifier: Modifier, close: () -> Unit) {
+private fun FamilySharingScreenContent(container: AppContainer, modifier: Modifier, close: () -> Unit) {
     var family by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.family.FamilySummary>?>(null) }
     var circles by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.family.CircleList>?>(null) }
     var refresh by remember { mutableStateOf(0) }; var selectedCircle by remember { mutableStateOf<io.narratrace.android.core.family.Circle?>(null) }
@@ -1446,8 +1462,8 @@ private fun FamilySharingScreen(container: AppContainer, modifier: Modifier, clo
                     Text(if (member.isCurrentUser) "You" else member.email, style = MaterialTheme.typography.titleMedium); Text("${member.role} · ${member.status}")
                     if (!member.isCurrentUser && member.status in setOf("active", "pending")) BlockPersonButton(container, io.narratrace.android.core.family.BlockSource("family", own.id, member.email), member.email)
                     if (own.myRole == "owner" && !member.isCurrentUser) { Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        TextButton(onClick = { scope.launch { container.familyRepository.update(member.email, if (member.role == "viewer") "editor" else "viewer"); refresh++ } }) { Text(if (member.role == "viewer") "Make editor" else "Make viewer") }
-                        TextButton(onClick = { scope.launch { container.familyRepository.remove(member.email); refresh++ } }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+                        TextButton(onClick = { scope.launch { val changed = container.familyRepository.update(member.email, if (member.role == "viewer") "editor" else "viewer"); message = changed.failureMessage(); if (changed is FeatureResult.Success) refresh++ } }) { Text(if (member.role == "viewer") "Make editor" else "Make viewer") }
+                        TextButton(onClick = { scope.launch { val changed = container.familyRepository.remove(member.email); message = changed.failureMessage(); if (changed is FeatureResult.Success) refresh++ } }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
                     } }
                 } } }
                 if (own.myRole == "owner") {
@@ -1473,20 +1489,23 @@ private fun FamilySharingScreen(container: AppContainer, modifier: Modifier, clo
 
 @Composable
 private fun CircleDetailScreen(container: AppContainer, circle: io.narratrace.android.core.family.Circle, modifier: Modifier, close: () -> Unit) {
+    var message by remember { mutableStateOf<String?>(null) }
     var detail by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.family.CircleDetail>?>(null) }
     var interviews by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.media.InterviewList>?>(null) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }; var email by remember { mutableStateOf("") }; var displayName by remember { mutableStateOf("") }
     var refresh by remember { mutableStateOf(0) }; var busy by remember { mutableStateOf(false) }; var confirmDelete by remember { mutableStateOf(false) }; val scope = rememberCoroutineScope()
     LaunchedEffect(refresh) { detail = container.familyRepository.circle(circle.id); interviews = container.mediaRepository.interviews(); (detail as? FeatureResult.Success)?.let { selected = it.value.sharedInterviewIds.toSet() } }
-    if (confirmDelete) AlertDialog(onDismissRequest = { confirmDelete = false }, title = { Text("Delete this Circle?") }, text = { Text("Circle access and invitations will be removed. Your original interviews and Letters stay in your private account.") }, confirmButton = { Button(onClick = { confirmDelete = false; scope.launch { if (container.familyRepository.deleteCircle(circle.id) is FeatureResult.Success) close() } }) { Text("Delete Circle") } }, dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep Circle") } })
+    if (confirmDelete) AlertDialog(onDismissRequest = { confirmDelete = false }, title = { Text("Delete this Circle?") }, text = { Text("Circle access and invitations will be removed. Your original interviews and Letters stay in your private account.") }, confirmButton = { Button(onClick = { confirmDelete = false; scope.launch { val changed = container.familyRepository.deleteCircle(circle.id); if (changed is FeatureResult.Success) close() else message = changed.failureMessage() } }) { Text("Delete Circle") } }, dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep Circle") } })
     BackHandler(onBack = close)
     LazyColumn(modifier.fillMaxSize().imePadding(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to family sharing") }; Text(circle.name, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) } }
+        message?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
         when (val loaded = detail) {
             null -> item { LoadingMessage("Opening this private Circle…") }
             is FeatureResult.Unavailable -> item { Text(loaded.message, color = MaterialTheme.colorScheme.error) }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify this Circle.", color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Success -> {
+                item { ContentReportButton(container, "circle", circle.id) }
                 item { Text("Members", style = MaterialTheme.typography.titleLarge) }
                 if (circle.role != "owner") item {
                     BlockPersonButton(container, io.narratrace.android.core.family.BlockSource("circle", circle.id, target = "owner"), "Circle owner")
@@ -1500,19 +1519,19 @@ private fun CircleDetailScreen(container: AppContainer, circle: io.narratrace.an
                             BlockPersonButton(container, io.narratrace.android.core.family.BlockSource("circle", circle.id, memberId = member.id), memberLabel)
                         }
                         if (circle.role == "owner") TextButton(onClick = { scope.launch {
-                            container.familyRepository.circleAction(circle.id, "remove_member", member.memberEmail); refresh++
+                            val changed = container.familyRepository.circleAction(circle.id, "remove_member", member.memberEmail); message = changed.failureMessage(); if (changed is FeatureResult.Success) refresh++
                         } }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
                     } }
                 }
                 if (circle.role == "owner") {
                     item { OutlinedTextField(email, { email = it.take(254) }, Modifier.fillMaxWidth(), label = { Text("Invite email") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email), singleLine = true) }
                     item { OutlinedTextField(displayName, { displayName = it.take(100) }, Modifier.fillMaxWidth(), label = { Text("Display name (optional)") }, singleLine = true) }
-                    item { Button(onClick = { busy = true; scope.launch { container.familyRepository.circleAction(circle.id, "invite", email, displayName); busy = false; refresh++ } }, enabled = !busy && email.trim().isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("Invite to Circle") } }
+                    item { Button(onClick = { busy = true; scope.launch { val changed = container.familyRepository.circleAction(circle.id, "invite", email, displayName); message = changed.failureMessage(); busy = false; if (changed is FeatureResult.Success) refresh++ } }, enabled = !busy && email.trim().isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("Invite to Circle") } }
                     item { Text("Explicitly shared completed interviews", style = MaterialTheme.typography.titleLarge) }
                     (interviews as? FeatureResult.Success)?.value?.interviews?.filter { it.status == "complete" }?.let { values -> items(values, key = { "share:${it.id}" }) { interview ->
                         Card(Modifier.fillMaxWidth().clickable { selected = if (interview.id in selected) selected - interview.id else selected + interview.id }) { Column(Modifier.padding(12.dp)) { Text(interview.subjectName); Text(if (interview.id in selected) "Selected ✓" else "Private", style = MaterialTheme.typography.bodySmall) } }
                     } }
-                    item { Button(onClick = { busy = true; scope.launch { container.familyRepository.circleAction(circle.id, "share", ids = selected.toList()); busy = false; refresh++ } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Save Circle sharing") } }
+                    item { Button(onClick = { busy = true; scope.launch { val changed = container.familyRepository.circleAction(circle.id, "share", ids = selected.toList()); message = changed.failureMessage(); busy = false; if (changed is FeatureResult.Success) refresh++ } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Save Circle sharing") } }
                 }
                 item { Text("Shared Mosaic stories", style = MaterialTheme.typography.titleLarge) }
                 if (loaded.value.sharedMemories.isEmpty()) item { Text("No interviews have been explicitly shared.") } else items(loaded.value.sharedMemories, key = { it.id }) { memory -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) { Text(memory.subjectName, style = MaterialTheme.typography.titleMedium); memory.narrative?.let { Text(it) } } } }
@@ -1585,7 +1604,7 @@ private fun OfflineCaptureScreen(container: AppContainer, modifier: Modifier, cl
 }
 
 @Composable
-private fun CustomerCaptureScreen(
+private fun CustomerCaptureScreenContent(
     container: AppContainer,
     modifier: Modifier = Modifier,
     onInteraction: () -> Unit,
@@ -1631,7 +1650,7 @@ private fun CustomerCaptureScreen(
             else photoMessage = uploadResultMessage(container, "Video", container.mediaRepository.reconcile())
         }
     }
-    LaunchedEffect(refreshKey) { accountResult = container.customerRepository.loadAccount() }
+    LaunchedEffect(refreshKey) { accountResult = container.customerRepository.accountForLocalCapture() }
     val productionArchives = (accountResult as? AccountResult.Success)?.value?.productionArchives.orEmpty()
     LaunchedEffect(productionArchives.map(ProductionArchive::id)) {
         selectedArchiveId = when {
@@ -1756,19 +1775,24 @@ private fun CustomerCaptureScreen(
 }
 
 @Composable
-private fun LettersScreen(container: AppContainer, modifier: Modifier, close: () -> Unit) {
+private fun LettersScreenContent(container: AppContainer, modifier: Modifier, close: () -> Unit) {
     var result by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.letters.LetterList>?>(null) }
     var refresh by remember { mutableStateOf(0) }
     var composing by remember { mutableStateOf(false) }
+    var draft by remember { mutableStateOf<io.narratrace.android.core.offline.OfflineLetterDraft?>(null) }
+    val drafts = remember(refresh) { container.offlineRepository.store.load() }
     var selected by remember { mutableStateOf<LetterSummary?>(null) }
     LaunchedEffect(refresh) { result = container.lettersRepository.letters() }
-    if (composing) { LetterComposerScreen(container, modifier) { composing = false; refresh++ }; return }
-    if (selected != null) { LetterDetailScreen(container, selected!!, modifier) { selected = null; refresh++ }; return }
+    if (composing) { LetterComposerScreen(container, modifier, draft) { composing = false; draft = null; refresh++ }; return }
+    if (selected != null) { LetterDetailScreen(container, selected!!.id, modifier) { selected = null; refresh++ }; return }
     BackHandler(onBack = close)
     LazyColumn(modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }; Text("Letters", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) } }
         item { Text("Letters use the same private, revocable delivery workflow as other artifacts. External recipients confirm or decline without seeing Letter content; Narratrace requires confirmation again at delivery when the prior confirmation is more than 12 months old.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        item { Button(onClick = { composing = true }, Modifier.fillMaxWidth()) { Text("Write a Letter") } }
+        item { Button(onClick = { draft = null; composing = true }, Modifier.fillMaxWidth()) { Text("Write a Letter") } }
+        items(drafts, key = { "draft:${it.clientDraftId}" }) { saved ->
+            OutlinedButton(onClick = { draft = saved; composing = true }, Modifier.fillMaxWidth()) { Text("Review saved draft: ${saved.subject}") }
+        }
         when (val loaded = result) {
             null -> item { LoadingMessage("Loading private Letters…") }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify Letters.", color = MaterialTheme.colorScheme.error) }
@@ -1785,63 +1809,99 @@ private fun LettersScreen(container: AppContainer, modifier: Modifier, close: ()
 }
 
 @Composable
-private fun LetterComposerScreen(container: AppContainer, modifier: Modifier, close: () -> Unit) {
-    var recipient by remember { mutableStateOf("") }; var email by remember { mutableStateOf("") }
-    var subject by remember { mutableStateOf("") }; var body by remember { mutableStateOf("") }
-    var selfDelivery by remember { mutableStateOf(false) }; var later by remember { mutableStateOf(false) }
-    var localTime by remember { mutableStateOf("") }; var saving by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf<String?>(null) }; var key by remember { mutableStateOf(UUID.randomUUID().toString()) }
+private fun LetterComposerScreen(container: AppContainer, modifier: Modifier, draft: io.narratrace.android.core.offline.OfflineLetterDraft? = null, close: () -> Unit) {
+    val deliveryZone = remember { runCatching { java.time.ZoneId.of(draft?.deliveryTimezone ?: java.time.ZoneId.systemDefault().id) }.getOrDefault(java.time.ZoneId.systemDefault()) }
+    var circleId by remember { mutableStateOf(draft?.circleId) }
+    var circleMemberEmail by remember { mutableStateOf(draft?.circleMemberEmail) }
+    var circles by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.family.CircleList>?>(null) }
+    var circleDetail by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.family.CircleDetail>?>(null) }
+    LaunchedEffect(Unit) { circles = container.familyRepository.circles() }
+    LaunchedEffect(circleId) { circleDetail = null; circleId?.let { circleDetail = container.familyRepository.circle(it) } }
+    var recipient by remember { mutableStateOf(draft?.recipientName.orEmpty()) }; var email by remember { mutableStateOf(draft?.recipientEmail.orEmpty()) }
+    var subject by remember { mutableStateOf(draft?.subject.orEmpty()) }; var body by remember { mutableStateOf(draft?.body.orEmpty()) }
+    var selfDelivery by remember { mutableStateOf(draft?.selfDelivery == true) }; var later by remember { mutableStateOf(draft?.deliveryMode == "later" || draft?.unlockAt != null) }
+    var localTime by remember { mutableStateOf(draft?.unlockAt?.let { runCatching { java.time.Instant.parse(it).atZone(deliveryZone).toLocalDateTime().toString().take(16) }.getOrNull() }.orEmpty()) }; var saving by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }; var key by remember { mutableStateOf(draft?.idempotencyKey ?: UUID.randomUUID().toString()) }
+    val draftId = remember { draft?.clientDraftId ?: UUID.randomUUID().toString() }
+    var deliveryContactRequired by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     BackHandler(enabled = !saving, onBack = close)
     Column(modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close, enabled = !saving) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Letters") }; Text("Write a Letter", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
+        if (draft != null) Text("Review and confirm the recipient and delivery time before saving. This draft has not been sent.")
         Text("Nothing is shared before delivery. The recipient email identifies you as the creator but contains no Letter content. External recipients can confirm or decline, and Narratrace requires confirmation again at delivery if the prior confirmation is more than 12 months old.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         OutlinedTextField(recipient, { recipient = it.take(100); key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth(), label = { Text("Recipient name") }, singleLine = true)
-        Button(onClick = { selfDelivery = !selfDelivery; key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth()) { Text(if (selfDelivery) "Deliver to me ✓" else "Deliver to me") }
-        if (!selfDelivery) OutlinedTextField(email, { email = it.take(254); key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth(), label = { Text("Recipient email") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
+        Button(onClick = { selfDelivery = !selfDelivery; circleId = null; circleMemberEmail = null; key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth()) { Text(if (selfDelivery) "Deliver to me ✓" else "Deliver to me") }
+        if (!selfDelivery && circleId == null) OutlinedTextField(email, { email = it.take(254); key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth(), label = { Text("Recipient email") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
+        TextButton(onClick = { selfDelivery = false; circleId = null; circleMemberEmail = null; key = UUID.randomUUID().toString() }) { Text("Deliver to a person") }
+        (circles as? FeatureResult.Success)?.value?.circles?.filter { it.role == "owner" }?.forEach { circle ->
+            OutlinedButton(onClick = { circleId = circle.id; circleMemberEmail = null; recipient = circle.name; selfDelivery = false; key = UUID.randomUUID().toString() }) { Text("Circle: ${circle.name}" + if (circleId == circle.id) " ✓" else "") }
+        }
+        if (circleId != null) {
+            TextButton(onClick = { circleMemberEmail = null; key = UUID.randomUUID().toString() }) { Text("Entire Circle" + if (circleMemberEmail == null) " ✓" else "") }
+            (circleDetail as? FeatureResult.Success)?.value?.members?.filter { it.status == "active" }?.forEach { member ->
+                TextButton(onClick = { circleMemberEmail = member.memberEmail; key = UUID.randomUUID().toString() }) { Text((member.displayName ?: member.memberEmail) + if (circleMemberEmail == member.memberEmail) " ✓" else "") }
+            }
+            if (circleDetail !is FeatureResult.Success) Text("Connect to verify this Circle before delivery.")
+        }
         OutlinedTextField(subject, { subject = it.take(200); key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth(), label = { Text("Subject") }, singleLine = true)
         OutlinedTextField(body, { body = it.take(10_000); key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth(), label = { Text("Letter") }, minLines = 8)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { later = false; key = UUID.randomUUID().toString() }, Modifier.weight(1f)) { Text(if (!later) "Send now ✓" else "Send now") }
             Button(onClick = { later = true; key = UUID.randomUUID().toString() }, Modifier.weight(1f)) { Text(if (later) "Deliver later ✓" else "Deliver later") }
         }
-        if (later) OutlinedTextField(localTime, { localTime = it.take(16); key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth(), label = { Text("Local date and time") }, placeholder = { Text("2026-12-31T18:30") }, supportingText = { Text("Uses ${java.time.ZoneId.systemDefault().id}") }, singleLine = true)
+        if (later) OutlinedTextField(localTime, { localTime = it.take(16); key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth(), label = { Text("Local date and time") }, placeholder = { Text("2026-12-31T18:30") }, supportingText = { Text("Uses ${deliveryZone.id}") }, singleLine = true)
         Button(onClick = { saving = true; message = null; scope.launch {
             val parsed = if (later) runCatching { LocalDateTime.parse(localTime) }.getOrNull() else null
             if (later && parsed == null) message = "Enter a valid local date and time."
-            else when (val created = container.lettersRepository.create(recipient, email.takeIf { !selfDelivery }, selfDelivery, subject, body, if (later) DeliveryMode.LATER else DeliveryMode.NOW, parsed, key)) {
-                is FeatureResult.Success -> { message = if (created.value.verificationPending) "Letter saved. Recipient verification is pending; no content was shared." else "Letter saved securely."; recipient = ""; email = ""; subject = ""; body = ""; key = UUID.randomUUID().toString() }
+            else when (val created = container.lettersRepository.create(recipient, email.takeIf { !selfDelivery }, selfDelivery, subject, body, if (later) DeliveryMode.LATER else DeliveryMode.NOW, parsed, key, circleId, circleMemberEmail, deliveryZone.id)) {
+                is FeatureResult.Success -> { draft?.let { container.offlineRepository.store.remove(it.clientDraftId) }; message = if (created.value.verificationPending) "Letter saved. Recipient verification is pending; no content was shared." else "Letter saved securely."; recipient = ""; email = ""; subject = ""; body = ""; key = UUID.randomUUID().toString() }
                 is FeatureResult.Unavailable -> {
-                    val saved = container.offlineRepository.store.save(io.narratrace.android.core.offline.OfflineLetterDraft(recipientName = recipient.trim(), subject = subject.trim(), body = body.trim(), unlockAt = parsed?.atZone(java.time.ZoneId.systemDefault())?.toInstant()?.toString(), idempotencyKey = key))
-                    message = if (saved) "Encrypted draft saved on this device. Narratrace will reconcile it after authorization is restored." else created.message
+                    if (!created.offline) { deliveryContactRequired = created.code == "DELIVERY_CONTACT_REQUIRED"; message = created.message; saving = false; return@launch }
+                    val saved = container.offlineRepository.store.save(io.narratrace.android.core.offline.OfflineLetterDraft(clientDraftId = draftId, recipientName = recipient.trim(), subject = subject.trim(), body = body.trim(), unlockAt = parsed?.atZone(deliveryZone)?.toInstant()?.toString(), idempotencyKey = key, recipientEmail = email.takeIf { !selfDelivery }, selfDelivery = selfDelivery, deliveryMode = if (later) "later" else "now", deliveryTimezone = deliveryZone.id, deliveryLocalDatetime = parsed?.toString(), circleId = circleId, circleMemberEmail = circleMemberEmail))
+                    message = if (saved) "Encrypted draft saved on this device. Open this draft to confirm delivery when connected." else created.message
                 }
                 FeatureResult.AuthenticationRequired -> {
-                    val saved = container.offlineRepository.store.save(io.narratrace.android.core.offline.OfflineLetterDraft(recipientName = recipient.trim(), subject = subject.trim(), body = body.trim(), unlockAt = parsed?.atZone(java.time.ZoneId.systemDefault())?.toInstant()?.toString(), idempotencyKey = key))
-                    message = if (saved) "Encrypted draft saved on this device. Sign in again to reconcile it." else "Sign in again before saving this Letter."
+                    val saved = container.offlineRepository.store.save(io.narratrace.android.core.offline.OfflineLetterDraft(clientDraftId = draftId, recipientName = recipient.trim(), subject = subject.trim(), body = body.trim(), unlockAt = parsed?.atZone(deliveryZone)?.toInstant()?.toString(), idempotencyKey = key, recipientEmail = email.takeIf { !selfDelivery }, selfDelivery = selfDelivery, deliveryMode = if (later) "later" else "now", deliveryTimezone = deliveryZone.id, deliveryLocalDatetime = parsed?.toString(), circleId = circleId, circleMemberEmail = circleMemberEmail))
+                    message = if (saved) "Encrypted draft saved on this device. Sign in again and open the draft to confirm delivery." else "Sign in again before saving this Letter."
                 }
             }; saving = false
-        } }, enabled = !saving && recipient.trim().isNotEmpty() && subject.trim().isNotEmpty() && body.trim().isNotEmpty() && (selfDelivery || email.trim().isNotEmpty()), modifier = Modifier.fillMaxWidth()) { Text("Save Letter") }
+        } }, enabled = !saving && recipient.trim().isNotEmpty() && subject.trim().isNotEmpty() && body.trim().isNotEmpty() && (selfDelivery || (circleId != null && circleDetail is FeatureResult.Success) || (circleId == null && email.trim().isNotEmpty())), modifier = Modifier.fillMaxWidth()) { Text("Save Letter") }
+        if (deliveryContactRequired) TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account?client=android#delivery-contact-email".toUri())) }) { Text("Verify delivery contact") }
         message?.let { Text(it, color = if (it.contains("saved")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }
     }
 }
 
 @Composable
-private fun LetterDetailScreen(container: AppContainer, summary: LetterSummary, modifier: Modifier, close: () -> Unit) {
+private fun LetterDetailScreen(container: AppContainer, letterId: String, modifier: Modifier, close: () -> Unit) {
     var result by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.letters.LetterDetailResponse>?>(null) }
     var email by remember { mutableStateOf("") }; var busy by remember { mutableStateOf(false) }; var confirmDelete by remember { mutableStateOf(false) }
+    var retry by remember { mutableIntStateOf(0) }
     var message by remember { mutableStateOf<String?>(null) }; val scope = rememberCoroutineScope()
-    LaunchedEffect(summary.id) { result = container.lettersRepository.letter(summary.id) }
-    if (confirmDelete) AlertDialog(onDismissRequest = { confirmDelete = false }, title = { Text("Cancel this Letter?") }, text = { Text("The Letter and its pending delivery will be permanently removed.") }, confirmButton = { Button(onClick = { confirmDelete = false; busy = true; scope.launch { if (container.lettersRepository.delete(summary.id) is FeatureResult.Success) close(); busy = false } }) { Text("Cancel Letter") } }, dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep Letter") } })
+    LaunchedEffect(letterId, retry) { result = container.lettersRepository.letter(letterId) }
+    if (confirmDelete) AlertDialog(onDismissRequest = { confirmDelete = false }, title = { Text("Cancel this Letter?") }, text = { Text("The Letter and its pending delivery will be permanently removed.") }, confirmButton = { Button(onClick = { confirmDelete = false; busy = true; scope.launch { val deleted = container.lettersRepository.delete(letterId); if (deleted is FeatureResult.Success) close() else message = deleted.failureMessage(); busy = false } }) { Text("Cancel Letter") } }, dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep Letter") } })
     BackHandler(onBack = close)
     when (val loaded = result) {
         null -> LoadingSurface(modifier, "Letter", "Opening private Letter…")
         FeatureResult.AuthenticationRequired -> FailureSurface(modifier, "Sign in again to verify this Letter.")
-        is FeatureResult.Unavailable -> RetrySurface(modifier, "Letter unavailable", loaded.message, loaded.supportReference) { result = null }
+        is FeatureResult.Unavailable -> RetrySurface(modifier, "Letter unavailable", loaded.message, loaded.supportReference) { result = null; retry++ }
         is FeatureResult.Success -> { val letter = loaded.value.letter; Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Letters") }; Text(letter.subject, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
+            ContentReportButton(container, "letter", letter.id)
             Text("To ${letter.recipientName}"); Text(letterDeliveryStatus(letter.deliveryState, letter.recipientVerified, letter.delivered, letter.unlockAt))
-            if (letter.canDisplayContent()) Text(letter.body!!, style = MaterialTheme.typography.bodyLarge)
+            if (letter.canDisplayContent()) {
+                Text(letter.body!!, style = MaterialTheme.typography.bodyLarge)
+                if (letter.hasAudio) ProtectedAudioButton("Play attached voice") {
+                    when (val audio = container.lettersRepository.audio(letter.id)) {
+                        is FeatureResult.Success -> container.lettersRepository.audioBytes(audio.value.url)?.let { FeatureResult.Success(it) } ?: FeatureResult.Unavailable("Recording could not be opened. Try again.")
+                        is FeatureResult.Unavailable -> audio
+                        FeatureResult.AuthenticationRequired -> FeatureResult.AuthenticationRequired
+                    }
+                }
+            }
             else Text("Letter content remains private until authorized delivery.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (letter.isOwner) LetterVoiceAttachment(container, letter.id) { retry++ }
             if (letter.isOwner && !letter.sharedDeliveryManaged && letter.deliveryState == "pending_verification" && !letter.recipientVerified && letter.canCancel) {
                 Button(onClick = { busy = true; scope.launch { val value = container.lettersRepository.manage(letter.id, "resend_verification"); message = if (value is FeatureResult.Success) "Verification sent. No Letter content was included." else "Verification could not be sent."; busy = false } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Resend verification") }
                 OutlinedTextField(email, { email = it.take(254) }, Modifier.fillMaxWidth(), label = { Text("Correct recipient email") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
@@ -1960,9 +2020,11 @@ private fun GuidedInterviewsScreen(container: AppContainer, modifier: Modifier, 
     var creating by remember { mutableStateOf(false) }
     var accepting by remember { mutableStateOf(false) }
     var creationMessage by remember { mutableStateOf<String?>(null) }
+    var interviewAccount by remember { mutableStateOf<AccountResult?>(null) }
+    var showAccess by remember { mutableStateOf(false) }
     var key by remember { mutableStateOf(UUID.randomUUID().toString()) }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(refresh) { result = container.mediaRepository.interviews(); legal = container.mediaRepository.legal() }
+    LaunchedEffect(refresh) { result = container.mediaRepository.interviews(); legal = container.mediaRepository.legal(); interviewAccount = container.customerRepository.loadAccount() }
     BackHandler(onBack = close)
     LazyColumn(modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1989,12 +2051,21 @@ private fun GuidedInterviewsScreen(container: AppContainer, modifier: Modifier, 
         item { OutlinedTextField(name, { name = it.take(120); key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth(), label = { Text("Who is this story about?") }, singleLine = true) }
         item { OutlinedTextField(relation, { relation = it.take(120); key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth(), label = { Text("Relationship (optional)") }, singleLine = true) }
         item { Button(onClick = { creating = true; creationMessage = null; scope.launch {
+            val fresh = container.customerRepository.loadAccount()
+            interviewAccount = fresh
+            if (fresh !is AccountResult.Success) { creationMessage = "Connect to verify interview access and try again."; creating = false; return@launch }
+            if (!fresh.value.canStartGuidedInterview()) { showAccess = true; creating = false; return@launch }
             when (val made = container.mediaRepository.createInterview(name, relation, null, key)) {
                 is FeatureResult.Success -> { name = ""; relation = ""; key = UUID.randomUUID().toString(); selected = made.value.interview }
-                is FeatureResult.Unavailable -> creationMessage = made.message
+                is FeatureResult.Unavailable -> { creationMessage = if (made.interviewAccessRequired) "This interview requires eligible account access." else made.message; if (made.interviewAccessRequired) showAccess = true; if (made.forbidden) { interviewAccount = container.customerRepository.loadAccount(); showAccess = showAccess || (interviewAccount as? AccountResult.Success)?.value?.canStartGuidedInterview() == false } }
                 FeatureResult.AuthenticationRequired -> creationMessage = "Sign in again before starting an interview."
             }; creating = false
-        } }, modifier = Modifier.fillMaxWidth(), enabled = !creating && name.trim().isNotEmpty() && (legal as? FeatureResult.Success)?.value?.let { it.aiNoticeAcknowledged && it.specialCategoryConsent } == true) { Text("Start interview") } }
+        } }, modifier = Modifier.fillMaxWidth(), enabled = !creating && (interviewAccount as? AccountResult.Success)?.value?.canStartGuidedInterview() == true && name.trim().isNotEmpty() && (legal as? FeatureResult.Success)?.value?.let { it.aiNoticeAcknowledged && it.specialCategoryConsent } == true) { Text("Start interview") } }
+        if (showAccess || (interviewAccount as? AccountResult.Success)?.value?.canStartGuidedInterview() == false) item {
+            if ((interviewAccount as? AccountResult.Success)?.value?.experiment?.resourceState == "completed") Text("Your complimentary interview is complete. You can still open your existing story.")
+            AccountAccessNotice()
+            TextButton(onClick = { refresh++ }) { Text("Refresh access") }
+        }
         creationMessage?.let { message -> item {
             Text(
                 message,
@@ -2028,6 +2099,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
     var capacity by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.media.RecordingCapacity>?>(null) }
     var insights by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.media.InterviewInsights>?>(null) }
     var shareToken by remember { mutableStateOf<String?>(null) }
+    var shareVerified by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var confirmNarrativeAgreement by remember { mutableStateOf(false) }
     var processingMessage by remember { mutableStateOf<String?>(null) }
@@ -2050,13 +2122,15 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
         result = container.mediaRepository.interview(summary.id)
         capacity = container.mediaRepository.capacity()
         insights = container.mediaRepository.insights(summary.id)
-        shareToken = (container.mediaRepository.share(summary.id, "GET") as? FeatureResult.Success)?.value?.shareToken
+        val sharing = container.mediaRepository.share(summary.id, "GET")
+        shareVerified = sharing is FeatureResult.Success
+        if (sharing is FeatureResult.Success) shareToken = sharing.value.shareToken
     }
     if (confirmDelete) AlertDialog(
         onDismissRequest = { confirmDelete = false }, title = { Text("Delete this interview?") },
         text = { Text("The transcript, protected response media, and narrative will be permanently removed.") },
         confirmButton = { Button(onClick = { confirmDelete = false; sending = true; scope.launch {
-            if (container.mediaRepository.deleteInterview(summary.id) is FeatureResult.Success) close()
+            val deleted = container.mediaRepository.deleteInterview(summary.id); if (deleted is FeatureResult.Success) close() else processingMessage = deleted.failureMessage()
             sending = false
         } }) { Text("Delete interview") } },
         dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
@@ -2096,6 +2170,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
             IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to interviews") }
             Text(summary.subjectName, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
         } }
+        item { ContentReportButton(container, "interview", summary.id) }
         item { Text("This interview is private. Nia’s suggestions are AI-generated and should be reviewed.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         when (val loaded = result) {
             null -> item { LoadingMessage("Loading protected interview details…") }
@@ -2118,7 +2193,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
                 items(visibleMessages, key = { it.id }) { message -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(if (recordingMode == "together") 20.dp else 12.dp)) {
                     Text(if (message.role == "assistant") "Nia" else "You", style = MaterialTheme.typography.labelMedium)
                     Text(message.content, style = if (recordingMode == "together") MaterialTheme.typography.headlineLarge else MaterialTheme.typography.bodyLarge)
-                    if (message.hasMedia) Text("Protected ${message.mediaType ?: "media"} response", style = MaterialTheme.typography.bodySmall)
+                    if (message.hasMedia) InterviewRecording(container, summary.id, message.id, message.mediaType)
                 } } }
                 if (loaded.value.interview.status != "complete") {
                     if (recordingMode == "self") {
@@ -2139,10 +2214,10 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
                         is FeatureResult.Success -> Text("${available.value.remainingLabel} remains · audio up to ${available.value.audioMaxSeconds / 60}m ${available.value.audioMaxSeconds % 60}s. Capacity is checked again before transfer.", style = MaterialTheme.typography.bodySmall)
                         else -> Text("Recording capacity is unavailable. Refresh before recording audio.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     } }
-                    if (recordingMode == "self") item { Button(onClick = { sending = true; scope.launch { container.mediaRepository.status(summary.id, "complete"); sending = false; refresh++ } },
+                    if (recordingMode == "self") item { Button(onClick = { sending = true; scope.launch { val changed = container.mediaRepository.status(summary.id, "complete"); processingMessage = changed.failureMessage(); sending = false; if (changed is FeatureResult.Success) refresh++ } },
                         enabled = !sending && loaded.value.messages.any { it.role != "assistant" }, modifier = Modifier.fillMaxWidth()) { Text("Mark interview complete") } }
                     if (recordingMode == "self" && loaded.value.messages.none { it.role != "assistant" }) item { Text("Add at least one response before marking this interview complete.", style = MaterialTheme.typography.bodySmall) }
-                } else item { Button(onClick = { sending = true; scope.launch { container.mediaRepository.status(summary.id, "active"); sending = false; refresh++ } }, modifier = Modifier.fillMaxWidth()) { Text("Reopen interview") } }
+                } else item { Button(onClick = { sending = true; scope.launch { val changed = container.mediaRepository.status(summary.id, "active"); processingMessage = changed.failureMessage(); sending = false; if (changed is FeatureResult.Success) refresh++ } }, modifier = Modifier.fillMaxWidth()) { Text("Reopen interview") } }
                 loaded.value.narrative?.let { narrative -> item { Text("Narrative", style = MaterialTheme.typography.titleLarge) }; item { Text(narrative) } }
                 if (recordingMode != "together") item { Text("Interview coverage", style = MaterialTheme.typography.titleLarge) }
                 if (recordingMode != "together") item { when (val value = insights) {
@@ -2155,10 +2230,14 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
                 if (loaded.value.interview.status == "complete") {
                     if (loaded.value.narrative == null) item { Button(onClick = { confirmNarrativeAgreement = true }, enabled = !sending, modifier = Modifier.fillMaxWidth()) { Text("Create narrative") } }
                     else {
-                        item { if (shareToken == null) Button(onClick = { sending = true; scope.launch { shareToken = (container.mediaRepository.share(summary.id, "POST") as? FeatureResult.Success)?.value?.shareToken; sending = false } }, modifier = Modifier.fillMaxWidth()) { Text("Create public story link") }
+                        item { if (!shareVerified) TextButton(onClick = { refresh++ }) { Text("Retry sharing status") } else if (shareToken == null) Button(onClick = { sending = true; scope.launch { val created = container.mediaRepository.share(summary.id, "POST"); if (created is FeatureResult.Success) shareToken = created.value.shareToken else processingMessage = created.failureMessage(); sending = false } }, modifier = Modifier.fillMaxWidth()) { Text("Create public story link") }
                         else Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(onClick = { val url = "https://www.narratrace.io/story/$shareToken"; context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, url) }, "Share public story link")) }, modifier = Modifier.fillMaxWidth()) { Text("Share public story link") }
-                            TextButton(onClick = { sending = true; scope.launch { container.mediaRepository.share(summary.id, "DELETE"); shareToken = null; sending = false } }, modifier = Modifier.fillMaxWidth()) { Text("Revoke public story link") }
+                            TextButton(onClick = { sending = true; scope.launch { when (val revoked = container.mediaRepository.share(summary.id, "DELETE")) {
+                                is FeatureResult.Success -> shareToken = null
+                                is FeatureResult.Unavailable -> processingMessage = revoked.message
+                                FeatureResult.AuthenticationRequired -> processingMessage = "Sign in again to revoke this link."
+                            }; sending = false } }, modifier = Modifier.fillMaxWidth()) { Text("Revoke public story link") }
                         } }
                         item { Text("A public link exposes only this completed narrative. The transcript stays private, and the link can be revoked.", style = MaterialTheme.typography.bodySmall) }
                     }
@@ -2253,7 +2332,7 @@ private fun WrittenMemoryComposer(
 }
 
 @Composable
-private fun CustomerPeopleScreen(container: AppContainer, modifier: Modifier = Modifier) {
+private fun CustomerPeopleScreenContent(container: AppContainer, modifier: Modifier = Modifier) {
     var selectedPersonId by remember { mutableStateOf<String?>(null) }
     var creating by remember { mutableStateOf(false) }
     var relationshipMap by remember { mutableStateOf(false) }
@@ -2346,6 +2425,8 @@ private fun CustomerPersonDetailScreen(
     modifier: Modifier,
     onBack: () -> Unit,
 ) {
+    var destination by remember(personId) { mutableStateOf<Pair<String, String>?>(null) }
+    destination?.let { ResourceDestination(container, it.first, it.second, modifier) { destination = null }; return }
     var editing by remember(personId) { mutableStateOf(false) }
     var result by remember(personId) { mutableStateOf<CustomerPersonResult?>(null) }
     var refreshKey by remember(personId) { mutableStateOf(0) }
@@ -2359,12 +2440,12 @@ private fun CustomerPersonDetailScreen(
             retry = { result = null; refreshKey++ },
         )
         is CustomerPersonResult.Success -> if (editing) PersonEditorScreen(container, current.value.id, current.value.name, current.value.relation.orEmpty(), modifier) { editing = false; refreshKey++ }
-        else VerifiedPersonDetail(current.value, modifier, onBack, edit = { editing = true })
+        else VerifiedPersonDetail(current.value, modifier, onBack, edit = { editing = true }, open = { kind, id -> destination = kind to id })
     }
 }
 
 @Composable
-private fun VerifiedPersonDetail(person: RemotePersonDetail, modifier: Modifier, onBack: () -> Unit, edit: () -> Unit) {
+private fun VerifiedPersonDetail(person: RemotePersonDetail, modifier: Modifier, onBack: () -> Unit, edit: () -> Unit, open: (String, String) -> Unit) {
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp),
@@ -2383,11 +2464,11 @@ private fun VerifiedPersonDetail(person: RemotePersonDetail, modifier: Modifier,
         if (person.source == "manual") item { Button(onClick = edit, Modifier.fillMaxWidth()) { Text("Edit person") } }
         item { Text("Interviews (${person.interviews.size})", style = MaterialTheme.typography.titleLarge) }
         if (person.interviews.isEmpty()) item { Text("No connected interviews.") }
-        else items(person.interviews, key = { "interview:${it.id}" }) { Text("${it.status.replace('_', ' ').replaceFirstChar(Char::uppercase)} interview") }
+        else items(person.interviews, key = { "interview:${it.id}" }) { interview -> TextButton(onClick = { open("interview", interview.id) }) { Text("${interview.status.replace('_', ' ').replaceFirstChar(Char::uppercase)} interview") } }
         item { Text("Letters (${person.letters.size})", style = MaterialTheme.typography.titleLarge) }
         if (person.letters.isEmpty()) item { Text("No connected Letters.") }
         else items(person.letters, key = { "letter:${it.id}" }) { letter ->
-            Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
+            Card(Modifier.fillMaxWidth().clickable { open("letter", letter.id) }) { Column(Modifier.padding(16.dp)) {
                 Text(letter.subject, style = MaterialTheme.typography.titleMedium)
                 Text("Open Letters to review the secure delivery status", style = MaterialTheme.typography.bodySmall)
             } }
@@ -2395,7 +2476,7 @@ private fun VerifiedPersonDetail(person: RemotePersonDetail, modifier: Modifier,
         item { Text("Memories (${person.memories.size})", style = MaterialTheme.typography.titleLarge) }
         if (person.memories.isEmpty()) item { Text("No connected Memories.") }
         else items(person.memories, key = { "memory:${it.id}" }) { memory ->
-            Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
+            Card(Modifier.fillMaxWidth().clickable { open("memory", memory.id) }) { Column(Modifier.padding(16.dp)) {
                 Text(memory.title, style = MaterialTheme.typography.titleMedium)
                 Text(memory.excerpt, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(if (memory.visibility == "family") "Shared with family" else "Private", style = MaterialTheme.typography.bodySmall)
@@ -2494,7 +2575,7 @@ private fun PrivacyPermissionsScreen(modifier: Modifier, close: () -> Unit) {
 }
 
 @Composable
-private fun WebResourcesScreen(modifier: Modifier, close: () -> Unit) {
+private fun WebResourcesScreenContent(modifier: Modifier, close: () -> Unit) {
     val context = LocalContext.current
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { IconButton(close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }; Text("Web resources", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
@@ -2567,7 +2648,7 @@ private fun RetrySurface(
 }
 
 @Composable
-private fun CustomerLibraryScreen(container: AppContainer, modifier: Modifier = Modifier, wallOnly: Boolean = false) {
+private fun CustomerLibraryScreenContent(container: AppContainer, modifier: Modifier = Modifier, wallOnly: Boolean = false) {
     var result by remember { mutableStateOf<CustomerMemoriesResult?>(null) }
     var refreshKey by remember { mutableStateOf(0) }
     var selectedMemoryId by remember { mutableStateOf<String?>(null) }
@@ -2629,6 +2710,8 @@ private fun CustomerLibraryScreen(container: AppContainer, modifier: Modifier = 
 
 @Composable
 private fun VerifiedLibrary(container: AppContainer, mode: String, memories: List<RemoteMemory>, media: List<MediaSummary>, modifier: Modifier, mediaVerified: Boolean, showIllustration: Boolean, wallOnly: Boolean, open: (RemoteMemory) -> Unit, openMedia: (MediaSummary) -> Unit) {
+    var destination by remember { mutableStateOf<Pair<String, String>?>(null) }
+    destination?.let { ResourceDestination(container, it.first, it.second, modifier) { destination = null }; return }
     var query by remember { mutableStateOf("") }
     var search by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.customer.SearchResponse>?>(null) }
     var searching by remember { mutableStateOf(false) }; val scope = rememberCoroutineScope()
@@ -2643,7 +2726,7 @@ private fun VerifiedLibrary(container: AppContainer, mode: String, memories: Lis
         item { OutlinedTextField(query, { query = it.take(100); search = null }, Modifier.fillMaxWidth(), label = { Text("Search your archive") }, singleLine = true) }
         item { Button(onClick = { searching = true; scope.launch { search = container.customerRepository.search(query); searching = false } }, enabled = !searching && query.trim().length >= 2, modifier = Modifier.fillMaxWidth()) { Text("Search") } }
         when (val found = search) {
-            is FeatureResult.Success -> if (found.value.results.isEmpty()) item { Text("No authorized archive results.") } else items(found.value.results, key = { "search:${it.id}" }) { result -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) { Text(result.title, style = MaterialTheme.typography.titleMedium); Text(result.subtitle); Text(result.kind.replace('_', ' ').replaceFirstChar(Char::uppercase), style = MaterialTheme.typography.bodySmall) } } }
+            is FeatureResult.Success -> if (found.value.results.isEmpty()) item { Text("No authorized archive results.") } else items(found.value.results, key = { "search:${it.id}" }) { result -> Card(Modifier.fillMaxWidth().clickable { destination = result.kind to result.resourceId }) { Column(Modifier.padding(12.dp)) { Text(result.title, style = MaterialTheme.typography.titleMedium); Text(result.subtitle); Text(result.kind.replace('_', ' ').replaceFirstChar(Char::uppercase), style = MaterialTheme.typography.bodySmall) } } }
             is FeatureResult.Unavailable -> item { Text(found.message, color = MaterialTheme.colorScheme.error) }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to search your archive.", color = MaterialTheme.colorScheme.error) }
             null -> Unit
@@ -2719,7 +2802,7 @@ private fun CustomerMediaDetailScreen(container: AppContainer, mediaId: String, 
     if (confirmDelete) AlertDialog(
         onDismissRequest = { confirmDelete = false }, title = { Text("Delete this media?") },
         text = { Text("This preserved original and its derived content will be permanently removed.") },
-        confirmButton = { Button(onClick = { confirmDelete = false; busy = true; scope.launch { if (container.mediaRepository.deleteMedia(mediaId) is FeatureResult.Success) close(); busy = false } }) { Text("Delete permanently") } },
+        confirmButton = { Button(onClick = { confirmDelete = false; busy = true; scope.launch { val deleted = container.mediaRepository.deleteMedia(mediaId); if (deleted is FeatureResult.Success) close() else { saveMessage = deleted.failureMessage(); saveError = true }; busy = false } }) { Text("Delete permanently") } },
         dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
     )
     when (val loaded = result) {
@@ -2730,6 +2813,7 @@ private fun CustomerMediaDetailScreen(container: AppContainer, mediaId: String, 
             val detail = loaded.value.media
             Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Media") }; Text(detail.title, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
+                ContentReportButton(container, "media", mediaId)
                 if (detail.kind == "photo") {
                     val bitmap = photoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
                     when {
@@ -2802,6 +2886,8 @@ private fun ArtifactDeliveryComposer(container: AppContainer, uploadId: String, 
     var name by remember { mutableStateOf("") }; var email by remember { mutableStateOf("") }
     var self by remember { mutableStateOf(false) }; var later by remember { mutableStateOf(false) }
     var local by remember { mutableStateOf("") }; var busy by remember { mutableStateOf(false) }; var message by remember { mutableStateOf<String?>(null) }
+    var deliveryContactRequired by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     val scope = rememberCoroutineScope(); BackHandler(enabled = !busy, onBack = close)
     Column(modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to media") }; Text("Deliver this memory", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
@@ -2816,10 +2902,11 @@ private fun ArtifactDeliveryComposer(container: AppContainer, uploadId: String, 
             if (later && parsed == null) message = "Enter a valid local date and time."
             else when (val made = container.lettersRepository.createArtifactDelivery(uploadId, name, email.takeIf { !self }, self, if (later) DeliveryMode.LATER else DeliveryMode.NOW, parsed)) {
                 is FeatureResult.Success -> message = if (self) "Delivery scheduled securely." else "Delivery created. Recipient verification is required before access."
-                is FeatureResult.Unavailable -> message = made.message
+                is FeatureResult.Unavailable -> { message = made.message; deliveryContactRequired = made.code == "DELIVERY_CONTACT_REQUIRED" }
                 FeatureResult.AuthenticationRequired -> message = "Sign in again before creating delivery."
             }; busy = false
         } }, enabled = !busy && name.trim().isNotEmpty() && (self || email.trim().isNotEmpty()), modifier = Modifier.fillMaxWidth()) { Text("Create delivery") }
+        if (deliveryContactRequired) TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account?client=android#delivery-contact-email".toUri())) }) { Text("Verify delivery contact") }
         message?.let { Text(it, color = if (it.startsWith("Delivery")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }
     }
 }
@@ -2967,8 +3054,9 @@ private fun CustomerHomeScreen(container: AppContainer, modifier: Modifier = Mod
     var result by remember { mutableStateOf<CustomerHomeResult?>(null) }
     var refreshKey by remember { mutableStateOf(0) }
     var activity by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.customer.ActivityPage>?>(null) }
+    var account by remember { mutableStateOf<AccountResult?>(null) }
 
-    LaunchedEffect(refreshKey) { result = container.customerRepository.loadHome(); activity = container.customerRepository.activity() }
+    LaunchedEffect(refreshKey) { result = container.customerRepository.loadHome(); activity = container.customerRepository.activity(); account = container.customerRepository.loadAccount() }
 
     Column(
         modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
@@ -2976,6 +3064,10 @@ private fun CustomerHomeScreen(container: AppContainer, modifier: Modifier = Mod
         horizontalAlignment = Alignment.Start,
     ) {
         ReceptionWelcome()
+        if ((account as? AccountResult.Success)?.value?.isTrialPlan() == true) {
+            Text("Plan: Trial", style = MaterialTheme.typography.titleMedium)
+            Text("Home and Stories are included. Choose a plan to unlock the other workspaces.")
+        }
         protectedUploadAttention(container.mediaRepository.queue.items())?.let {
             Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, color = MaterialTheme.colorScheme.error)
         }
@@ -3035,7 +3127,8 @@ private fun String?.planLabel(): String = when (this) {
 }
 
 private fun String.statusLabel(): String = when (this) {
-    "trial_active", "trial_extended", "trial_expired" -> "Free guided interview"
+    "trial_active", "trial_extended" -> "Trial"
+    "trial_expired" -> "Trial interview unavailable"
     "subscription_active" -> "Active"
     "subscription_grace" -> "Payment grace period"
     "lapsed" -> "Archive only"
@@ -3048,3 +3141,100 @@ internal fun shouldRefreshAccountAfterExternalManagement(
     awaitingReturn: Boolean,
     event: Lifecycle.Event,
 ): Boolean = awaitingReturn && event == Lifecycle.Event.ON_RESUME
+
+@Composable
+private fun CustomerLibraryScreen(container: AppContainer, modifier: Modifier = Modifier, wallOnly: Boolean = false) {
+    TrialFeatureGate(container, modifier) { CustomerLibraryScreenContent(container, modifier, wallOnly) }
+}
+
+@Composable
+private fun CustomerPeopleScreen(container: AppContainer, modifier: Modifier = Modifier) {
+    TrialFeatureGate(container, modifier) { CustomerPeopleScreenContent(container, modifier) }
+}
+
+@Composable
+private fun CustomerCaptureScreen(container: AppContainer, modifier: Modifier = Modifier, onInteraction: () -> Unit) {
+    TrialFeatureGate(container, modifier) { CustomerCaptureScreenContent(container, modifier, onInteraction) }
+}
+
+@Composable
+private fun LettersScreen(container: AppContainer, modifier: Modifier, close: () -> Unit) {
+    BackHandler(onBack = close)
+    TrialFeatureGate(container, modifier) { LettersScreenContent(container, modifier, close) }
+}
+
+@Composable
+private fun FamilySharingScreen(container: AppContainer, modifier: Modifier, close: () -> Unit) {
+    BackHandler(onBack = close)
+    TrialFeatureGate(container, modifier) { FamilySharingScreenContent(container, modifier, close) }
+}
+
+@Composable
+private fun WebResourcesScreen(container: AppContainer, modifier: Modifier, close: () -> Unit) {
+    BackHandler(onBack = close)
+    TrialFeatureGate(container, modifier) { WebResourcesScreenContent(modifier, close) }
+}
+
+@Composable
+private fun TrialFeatureGate(container: AppContainer, modifier: Modifier, content: @Composable () -> Unit) {
+    var result by remember { mutableStateOf<AccountResult?>(container.customerRepository.lastVerifiedAccount()?.let { AccountResult.Success(it) }) }
+    var stories by remember { mutableStateOf(false) }
+    if (stories) { GuidedInterviewsScreen(container, modifier) { stories = false }; return }
+    var retry by remember { mutableStateOf(0) }
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) { retry++ }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(retry) {
+        val refreshed = container.customerRepository.loadAccount()
+        if (!(refreshed is AccountResult.Unavailable && refreshed.offline && result is AccountResult.Success)) result = refreshed
+    }
+    when (val current = result) {
+        is AccountResult.Success -> if (!current.value.isTrialPlan()) content() else {
+            Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                Text("Unlock more of Narratrace", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
+                Text("Plan: Trial", style = MaterialTheme.typography.titleMedium)
+                TrialAccessActions(current.value.experiment?.resourceState == "completed", { stories = true }, { retry++ })
+            }
+        }
+        null -> Column(modifier.padding(24.dp)) { LoadingMessage("Checking account access…") }
+        else -> Column(modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text("We could not check your plan. Please try again.")
+            Button(onClick = { retry++ }) { Text("Try again") }
+        }
+    }
+}
+
+@Composable
+private fun ResourceDestination(container: AppContainer, kind: String, id: String, modifier: Modifier, close: () -> Unit) {
+    BackHandler(onBack = close)
+    when (kind) {
+        "memory" -> CustomerMemoryDetailScreen(container, id, modifier, close)
+        "person" -> CustomerPersonDetailScreen(container, id, modifier, close)
+        "letter" -> LetterDetailScreen(container, id, modifier, close)
+        "photo", "video", "audio", "media" -> CustomerMediaDetailScreen(container, id, modifier, close)
+        "interview" -> {
+            var result by remember(id) { mutableStateOf<FeatureResult<InterviewDetail>?>(null) }
+            var retry by remember { mutableIntStateOf(0) }
+            LaunchedEffect(id, retry) { result = container.mediaRepository.interview(id) }
+            when (val current = result) {
+                is FeatureResult.Success -> InterviewDetailScreen(container, current.value.interview, modifier, close)
+                is FeatureResult.Unavailable -> RetrySurface(modifier, "Interview unavailable", current.message, current.supportReference) { retry++ }
+                FeatureResult.AuthenticationRequired -> FailureSurface(modifier, "Sign in again to open this interview.")
+                null -> LoadingSurface(modifier, "Interview", "Opening authorized interview…")
+            }
+        }
+        else -> FailureSurface(modifier, "This result cannot be opened in this version of Narratrace.")
+    }
+}
+
+private fun FeatureResult<*>.failureMessage(): String? = when (this) {
+    is FeatureResult.Success -> null
+    is FeatureResult.Unavailable -> message
+    FeatureResult.AuthenticationRequired -> "Sign in again to complete this action."
+}

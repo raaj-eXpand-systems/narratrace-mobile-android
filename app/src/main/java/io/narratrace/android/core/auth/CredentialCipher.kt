@@ -33,8 +33,8 @@ interface CredentialCipher {
  *
  * `setUserAuthenticationRequired` is deliberately NOT set. Requiring a device
  * credential per operation would break background upload of a memory the member
- * already chose to preserve. The inactivity gate provides the session-level
- * protection instead, at a layer where it does not fight the product.
+ * already chose to preserve. Server expiry, revocation and operation-specific
+ * recent authentication protect sessions without an idle sign-out timer.
  *
  * `setInvalidatedByBiometricEnrolment` is not applicable without user
  * authentication, but the key IS bound to the device and cannot be extracted, so a

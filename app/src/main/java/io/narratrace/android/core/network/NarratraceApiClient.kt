@@ -82,6 +82,26 @@ class NarratraceApiClient(
         bearer: String? = null,
     ): ApiResult<T> = execute(path, "GET", null, serializer, bearer, null)
 
+    /** Bounded, authenticated original audio; redirects cannot forward credentials. */
+    suspend fun getAudio(path: String, bearer: String): ApiResult<ByteArray> = withContext(Dispatchers.IO) {
+        val url = resolve(path) ?: return@withContext ApiResult.Unreadable(reason = "Invalid API origin")
+        val request = Request.Builder().url(url).header("Authorization", "Bearer $bearer")
+            .header("Cache-Control", "no-store").header(HEADER_PLATFORM, "android").build()
+        try {
+            httpClient.newBuilder().followRedirects(false).followSslRedirects(false).build().newCall(request).await().use { response ->
+                if (!response.isSuccessful) return@use decode(response, kotlinx.serialization.serializer<String>()).let { failure ->
+                    if (failure is ApiResult.Failure) failure else ApiResult.Unreadable(reason = "Unexpected audio envelope")
+                }
+                val body = response.body ?: return@use ApiResult.Unreadable(reason = "Missing audio")
+                if (body.contentType()?.type != "audio") return@use ApiResult.Unreadable(reason = "Unexpected audio type")
+                val source = body.source()
+                val maxBytes = 50L * 1024 * 1024
+                if (source.request(maxBytes + 1)) return@use ApiResult.Unreadable(reason = "Audio exceeds supported size")
+                ApiResult.Success(source.readByteArray(), "")
+            }
+        } catch (_: IOException) { ApiResult.Offline() }
+    }
+
     suspend fun <T> post(
         path: String,
         body: String?,
@@ -299,7 +319,7 @@ class NarratraceApiClient(
                 rawCode = failure.error.code,
                 fieldName = failure.error.fieldName,
             )
-            response.code == 403 -> ApiResult.Forbidden(message, failure.error.fieldName, supportReference)
+            response.code == 403 -> ApiResult.Forbidden(message, failure.error.fieldName, supportReference, failure.error.code)
             response.code == 428 && failure.error.parsedCode == ApiErrorCode.PRECONDITION_REQUIRED ->
                 ApiResult.PreconditionRequired(message, supportReference)
             response.code == 428 -> ApiResult.LegalAcceptanceRequired(message, supportReference)

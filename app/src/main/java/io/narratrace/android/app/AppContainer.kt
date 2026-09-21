@@ -138,6 +138,7 @@ class AppContainer(context: Context) {
             ProtectedMediaQueue(
                 File(appContext.filesDir, "protected-media"),
                 KeystoreCredentialCipher("io.narratrace.android.media.v1"),
+                owner = { (sessionManager.state.value as? io.narratrace.android.core.auth.AuthState.Authenticated)?.session?.accountId },
             ),
         )
     }
@@ -160,7 +161,7 @@ class AppContainer(context: Context) {
     }
     val offlineRepository: OfflineRepository by lazy { OfflineRepository(
         OfflineApi(apiClient), sessionManager,
-        OfflineDraftStore(File(appContext.filesDir, "protected-drafts.bin"), KeystoreCredentialCipher("io.narratrace.android.drafts.v1")),
+        OfflineDraftStore(File(appContext.filesDir, "protected-drafts.bin"), KeystoreCredentialCipher("io.narratrace.android.drafts.v1"), owner = { (sessionManager.state.value as? io.narratrace.android.core.auth.AuthState.Authenticated)?.session?.accountId }),
     ) }
 
     /** Applies the server's terminal local-data disposition without retaining a duplicate path. */

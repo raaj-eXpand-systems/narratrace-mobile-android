@@ -9,7 +9,7 @@ class OfflineRepository(private val api: OfflineApi, private val sessions: Sessi
         val token = (sessions.accessToken() as? TokenLease.Valid)?.accessToken ?: return store.load().size
         val lease = api.lease(token) as? ApiResult.Success ?: return store.load().size
         if (!lease.value.lease.authoritative || "letter.draft.sync" !in lease.value.lease.scopes) return store.load().size
-        store.load().forEach { draft ->
+        store.load().filterNot { it.requiresDeliveryReview }.forEach { draft ->
             val result = api.sync(draft, token)
             if (result is ApiResult.Success && result.value.draft.status == "ok") store.remove(draft.clientDraftId)
         }

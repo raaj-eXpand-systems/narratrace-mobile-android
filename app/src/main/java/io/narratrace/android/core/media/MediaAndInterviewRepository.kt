@@ -8,7 +8,7 @@ import io.narratrace.android.core.network.ApiErrorCode
 sealed interface FeatureResult<out T> {
     data class Success<T>(val value: T) : FeatureResult<T>
     data object AuthenticationRequired : FeatureResult<Nothing>
-    data class Unavailable(val message: String, val supportReference: String = "") : FeatureResult<Nothing>
+    data class Unavailable(val message: String, val supportReference: String = "", val offline: Boolean = false, val forbidden: Boolean = false, val interviewAccessRequired: Boolean = false, val code: String? = null) : FeatureResult<Nothing>
 }
 
 internal fun <T> destructiveFeatureResult(
@@ -22,7 +22,7 @@ internal fun <T> destructiveFeatureResult(
     return when (result) {
         is ApiResult.Success -> FeatureResult.Success(result.value)
         is ApiResult.Unauthorized -> FeatureResult.AuthenticationRequired
-        is ApiResult.Failure -> FeatureResult.Unavailable(result.message, result.supportReference)
+        is ApiResult.Failure -> FeatureResult.Unavailable(result.message, result.supportReference, result is ApiResult.Offline, result is ApiResult.Forbidden, result.requiresInterviewAccess())
     }
 }
 
@@ -70,48 +70,60 @@ class MediaAndInterviewRepository(
 
     suspend fun reconcile(): Int {
         latestIssue = null
+        val ownerId = (sessions.state.value as? io.narratrace.android.core.auth.AuthState.Authenticated)?.session?.accountId ?: return queue.items().size
         val token = (sessions.accessToken() as? TokenLease.Valid)?.accessToken ?: return queue.items().size
+        fun leaseStillCurrent() = uploadLeaseMatches(sessions.state.value, ownerId, token)
+        if (!leaseStillCurrent()) return queue.items().size
         queue.items().forEach { item ->
+            if (!leaseStillCurrent() || item.ownerAccountId != ownerId) return@forEach
             queue.markAttempt(item.id)
             when (item.kind) {
                 PendingMediaKind.StandaloneAudio, PendingMediaKind.Photo -> {
                     val bytes = queue.read(item) ?: return@forEach
+                    if (!leaseStillCurrent()) return@forEach
                     val authResult = api.authorizeUpload(item, token)
                     val auth = authResult as? ApiResult.Success ?: run { rememberFailure(authResult); return@forEach }
+                    if (!leaseStillCurrent()) return@forEach
                     if (!api.transfer(auth.value, bytes, item.mimeType)) return@forEach
+                    if (!leaseStillCurrent()) return@forEach
                     val confirmationResult = api.confirmUpload(item, auth.value, token)
                     val confirmation = confirmationResult as? ApiResult.Success ?: run { rememberFailure(confirmationResult); return@forEach }
                     val ack = confirmation.value.preservationAcknowledgement
-                    if (ack.permitsLocalRemoval()) queue.acknowledgeAndRemove(item.id)
+                    if (leaseStillCurrent() && ack.permitsLocalRemoval()) queue.acknowledgeAndRemove(item.id)
                 }
                 PendingMediaKind.InterviewAudio -> {
                     val bytes = queue.read(item) ?: return@forEach
                     val id = item.interviewId ?: return@forEach
+                    if (!leaseStillCurrent()) return@forEach
                     val responseResult = api.respondAudio(id, bytes, item.mimeType, item.sha256, item.idempotencyKey, token)
                     val response = responseResult as? ApiResult.Success ?: run { rememberFailure(responseResult); return@forEach }
-                    if (response.value.preservationAcknowledgement.permitsLocalRemoval()) queue.acknowledgeAndRemove(item.id)
+                    if (leaseStillCurrent() && response.value.preservationAcknowledgement.permitsLocalRemoval()) queue.acknowledgeAndRemove(item.id)
                 }
                 PendingMediaKind.StandaloneVideo, PendingMediaKind.InterviewVideo -> {
                     var current = item
                     if (current.uploadUrl == null || current.serverId == null) {
+                        if (!leaseStillCurrent()) return@forEach
                         val authorizationResult = api.authorizeVideo(current, token)
                         val authorization = authorizationResult as? ApiResult.Success
                             ?: run { rememberFailure(authorizationResult); return@forEach }
+                        if (!leaseStillCurrent()) return@forEach
                         if (!queue.setAuthorization(current.id, authorization.value.uploadUrl, authorization.value.videoId)) return@forEach
                         current = queue.items().firstOrNull { it.id == current.id } ?: return@forEach
                     }
-                    if (!api.transferVideo(current.uploadUrl!!, current, queue)) return@forEach
+                    if (!leaseStillCurrent() || !api.transferVideo(current.uploadUrl!!, current, queue, ::leaseStillCurrent)) return@forEach
                     if (current.kind == PendingMediaKind.InterviewVideo) {
+                        if (!leaseStillCurrent()) return@forEach
                         val responseResult = api.confirmInterviewVideo(current, token)
                         val response = responseResult as? ApiResult.Success
                             ?: run { rememberFailure(responseResult); return@forEach }
-                        if (response.value.preservationAcknowledgement.permitsLocalRemoval()) queue.acknowledgeAndRemove(current.id)
+                        if (leaseStillCurrent() && response.value.preservationAcknowledgement.permitsLocalRemoval()) queue.acknowledgeAndRemove(current.id)
                     } else {
+                        if (!leaseStillCurrent()) return@forEach
                         val preservedResult = api.videoPreservation(current.serverId!!, token)
                         val preserved = preservedResult as? ApiResult.Success
                             ?: run { rememberFailure(preservedResult); return@forEach }
                         val ack = preserved.value.video.preservationAcknowledgement
-                        if (ack.permitsLocalRemoval()) queue.acknowledgeAndRemove(current.id)
+                        if (leaseStillCurrent() && ack.permitsLocalRemoval()) queue.acknowledgeAndRemove(current.id)
                     }
                 }
             }
@@ -119,6 +131,8 @@ class MediaAndInterviewRepository(
         return queue.items().size
     }
 
+    suspend fun interviewAudio(id: String, messageId: String) = call { api.interviewAudio(id, messageId, it) }
+    suspend fun interviewVideo(id: String, messageId: String) = call { api.interviewVideo(id, messageId, it) }
     suspend fun interviews() = call { api.interviews(it) }
     suspend fun interview(id: String) = call { api.interview(id, it) }
     suspend fun capacity() = call { api.capacity(it) }
@@ -180,7 +194,22 @@ class MediaAndInterviewRepository(
         return when (result) {
             is ApiResult.Success -> FeatureResult.Success(result.value)
             is ApiResult.Unauthorized -> FeatureResult.AuthenticationRequired
-            is ApiResult.Failure -> FeatureResult.Unavailable(result.message, result.supportReference)
+            is ApiResult.Failure -> FeatureResult.Unavailable(result.message, result.supportReference, result is ApiResult.Offline, result is ApiResult.Forbidden, result.requiresInterviewAccess())
         }
     }
+}
+
+internal fun ApiResult.Failure.requiresInterviewAccess(): Boolean {
+    val code = (this as? ApiResult.ServerError)?.rawCode ?: (this as? ApiResult.Forbidden)?.rawCode
+    if (code == "INTERVIEW_ACCESS_REQUIRED") return true
+    return (this is ApiResult.Forbidden || code == "FORBIDDEN") && message in setOf(
+        "Your current plan does not include interviews.",
+        "Your complimentary first story is complete. Choose a plan to create another.",
+    )
+}
+
+/** A lease returned across suspension must still name this exact account and credential. */
+internal fun uploadLeaseMatches(state: io.narratrace.android.core.auth.AuthState, accountId: String, token: String): Boolean {
+    val session = (state as? io.narratrace.android.core.auth.AuthState.Authenticated)?.session ?: return false
+    return session.accountId == accountId && session.accessToken == token
 }
