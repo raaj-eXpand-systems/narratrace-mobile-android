@@ -10,7 +10,7 @@ import io.narratrace.android.core.ui.NarratraceAppearance
 
 class AppearanceStore(context: Context) {
     private val preferences = context.getSharedPreferences("appearance.v1", Context.MODE_PRIVATE)
-    fun load(): NarratraceAppearance = runCatching { NarratraceAppearance.valueOf(preferences.getString("mode", null) ?: "System") }.getOrDefault(NarratraceAppearance.System)
+    fun load(): NarratraceAppearance = runCatching { NarratraceAppearance.valueOf(preferences.getString("mode", null) ?: "UpcomingPreview") }.getOrDefault(NarratraceAppearance.UpcomingPreview)
     fun save(value: NarratraceAppearance): Boolean = preferences.edit().putString("mode", value.name).commit()
 }
 

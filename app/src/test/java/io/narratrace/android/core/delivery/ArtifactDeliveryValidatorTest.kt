@@ -16,6 +16,14 @@ class ArtifactDeliveryValidatorTest {
     private val futureZone = "America/New_York"
     private val futureInstant = futureLocal.atZone(ZoneId.of(futureZone)).toInstant()
 
+    @Test fun `nonexistent daylight saving wall time is rejected instead of silently moved`() {
+        val local = LocalDateTime.parse("2027-03-14T02:30:00")
+        val zone = ZoneId.of("America/New_York")
+        val result = validator.validate(ArtifactDeliveryRequest("creator@example.com", true, null,
+            DeliveryMode.LATER, local.atZone(zone).toInstant(), zone.id, local))
+        assertEquals(DeliveryValidationResult.Invalid(DeliveryValidationResult.Reason.DELIVERY_TIME_MISMATCH), result)
+    }
+
     @Test
     fun `self delivery accepts creator email and normalizes it`() {
         val result = validator.validate(

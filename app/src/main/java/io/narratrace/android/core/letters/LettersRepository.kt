@@ -30,11 +30,12 @@ class LettersRepository(
     suspend fun revokeDelivery(id: String) = call { api.revokeDelivery(id, it) }
     suspend fun createArtifactDelivery(
         uploadId: String, recipientName: String, recipientEmail: String?, selfDelivery: Boolean,
-        mode: DeliveryMode, localDateTime: LocalDateTime?,
+        mode: DeliveryMode, localDateTime: LocalDateTime?, deliveryTimezone: String = ZoneId.systemDefault().id,
     ): FeatureResult<ArtifactDeliveryCreation> {
         val name = recipientName.trim()
         if (name.isEmpty() || name.length > 100) return FeatureResult.Unavailable("Enter a recipient name.")
-        val zone = ZoneId.systemDefault(); val instant = localDateTime?.atZone(zone)?.toInstant()
+        val zone = runCatching { ZoneId.of(deliveryTimezone) }.getOrNull() ?: return FeatureResult.Unavailable("Choose a valid delivery time zone.")
+        val instant = localDateTime?.atZone(zone)?.toInstant()
         val validation = ArtifactDeliveryValidator(clock).validate(ArtifactDeliveryRequest(
             "member@narratrace.invalid", selfDelivery, recipientEmail, mode, instant,
             if (mode == DeliveryMode.LATER) zone.id else null,

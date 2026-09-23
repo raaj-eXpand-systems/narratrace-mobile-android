@@ -78,7 +78,7 @@ class ArtifactDeliveryValidator(private val clock: Clock) {
                     )
                 }
                 val resolvedInstant = localDateTime.atZone(zone).toInstant()
-                if (resolvedInstant != deliverAt) {
+                if (zone.rules.getValidOffsets(localDateTime).isEmpty() || resolvedInstant != deliverAt) {
                     return DeliveryValidationResult.Invalid(
                         DeliveryValidationResult.Reason.DELIVERY_TIME_MISMATCH,
                     )

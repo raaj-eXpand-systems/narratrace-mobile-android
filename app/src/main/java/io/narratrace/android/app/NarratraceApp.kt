@@ -1814,7 +1814,7 @@ private fun LettersScreenContent(container: AppContainer, modifier: Modifier, cl
 
 @Composable
 private fun LetterComposerScreen(container: AppContainer, modifier: Modifier, draft: io.narratrace.android.core.offline.OfflineLetterDraft? = null, close: () -> Unit) {
-    val deliveryZone = remember { runCatching { java.time.ZoneId.of(draft?.deliveryTimezone ?: java.time.ZoneId.systemDefault().id) }.getOrDefault(java.time.ZoneId.systemDefault()) }
+    var deliveryZone by remember { mutableStateOf(runCatching { java.time.ZoneId.of(draft?.deliveryTimezone ?: java.time.ZoneId.systemDefault().id) }.getOrDefault(java.time.ZoneId.systemDefault())) }
     var circleId by remember { mutableStateOf(draft?.circleId) }
     var circleMemberEmail by remember { mutableStateOf(draft?.circleMemberEmail) }
     var circles by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.family.CircleList>?>(null) }
@@ -1824,7 +1824,7 @@ private fun LetterComposerScreen(container: AppContainer, modifier: Modifier, dr
     var recipient by remember { mutableStateOf(draft?.recipientName.orEmpty()) }; var email by remember { mutableStateOf(draft?.recipientEmail.orEmpty()) }
     var subject by remember { mutableStateOf(draft?.subject.orEmpty()) }; var body by remember { mutableStateOf(draft?.body.orEmpty()) }
     var selfDelivery by remember { mutableStateOf(draft?.selfDelivery == true) }; var later by remember { mutableStateOf(draft?.deliveryMode == "later" || draft?.unlockAt != null) }
-    var localTime by remember { mutableStateOf(draft?.unlockAt?.let { runCatching { java.time.Instant.parse(it).atZone(deliveryZone).toLocalDateTime().toString().take(16) }.getOrNull() }.orEmpty()) }; var saving by remember { mutableStateOf(false) }
+    var localTime by remember { mutableStateOf(draft?.unlockAt?.let { runCatching { java.time.Instant.parse(it).atZone(deliveryZone).toLocalDateTime() }.getOrNull() } ?: LocalDateTime.now(deliveryZone).plusDays(1).withHour(9).withMinute(0).withSecond(0).withNano(0)) }; var saving by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }; var key by remember { mutableStateOf(draft?.idempotencyKey ?: UUID.randomUUID().toString()) }
     val draftId = remember { draft?.clientDraftId ?: UUID.randomUUID().toString() }
     var deliveryContactRequired by remember { mutableStateOf(false) }
@@ -1855,11 +1855,12 @@ private fun LetterComposerScreen(container: AppContainer, modifier: Modifier, dr
             Button(onClick = { later = false; key = UUID.randomUUID().toString() }, Modifier.weight(1f)) { Text(if (!later) "Send now ✓" else "Send now") }
             Button(onClick = { later = true; key = UUID.randomUUID().toString() }, Modifier.weight(1f)) { Text(if (later) "Deliver later ✓" else "Deliver later") }
         }
-        if (later) OutlinedTextField(localTime, { localTime = it.take(16); key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth(), label = { Text("Local date and time") }, placeholder = { Text("2026-12-31T18:30") }, supportingText = { Text("Uses ${deliveryZone.id}") }, singleLine = true)
+        if (later) DeliverySchedulePicker(localTime, deliveryZone,
+            onChange = { localTime = it; key = UUID.randomUUID().toString() },
+            onZoneChange = { localTime = localTime.atZone(deliveryZone).withZoneSameInstant(it).toLocalDateTime(); deliveryZone = it; key = UUID.randomUUID().toString() })
         Button(onClick = { saving = true; message = null; scope.launch {
-            val parsed = if (later) runCatching { LocalDateTime.parse(localTime) }.getOrNull() else null
-            if (later && parsed == null) message = "Enter a valid local date and time."
-            else when (val created = container.lettersRepository.create(recipient, email.takeIf { !selfDelivery }, selfDelivery, subject, body, if (later) DeliveryMode.LATER else DeliveryMode.NOW, parsed, key, circleId, circleMemberEmail, deliveryZone.id)) {
+            val parsed = if (later) localTime else null
+            when (val created = container.lettersRepository.create(recipient, email.takeIf { !selfDelivery }, selfDelivery, subject, body, if (later) DeliveryMode.LATER else DeliveryMode.NOW, parsed, key, circleId, circleMemberEmail, deliveryZone.id)) {
                 is FeatureResult.Success -> { draft?.let { container.offlineRepository.store.remove(it.clientDraftId) }; message = if (created.value.verificationPending) "Letter saved. Recipient verification is pending; no content was shared." else "Letter saved securely."; recipient = ""; email = ""; subject = ""; body = ""; key = UUID.randomUUID().toString() }
                 is FeatureResult.Unavailable -> {
                     if (!created.offline) { deliveryContactRequired = created.code == "DELIVERY_CONTACT_REQUIRED"; message = created.message; saving = false; return@launch }
@@ -2899,7 +2900,8 @@ private fun CustomerMediaDetailScreen(container: AppContainer, mediaId: String, 
 private fun ArtifactDeliveryComposer(container: AppContainer, uploadId: String, modifier: Modifier, close: () -> Unit) {
     var name by remember { mutableStateOf("") }; var email by remember { mutableStateOf("") }
     var self by remember { mutableStateOf(false) }; var later by remember { mutableStateOf(false) }
-    var local by remember { mutableStateOf("") }; var busy by remember { mutableStateOf(false) }; var message by remember { mutableStateOf<String?>(null) }
+    var deliveryZone by remember { mutableStateOf(java.time.ZoneId.systemDefault()) }
+    var local by remember { mutableStateOf(LocalDateTime.now(deliveryZone).plusDays(1).withHour(9).withMinute(0).withSecond(0).withNano(0)) }; var busy by remember { mutableStateOf(false) }; var message by remember { mutableStateOf<String?>(null) }
     var deliveryContactRequired by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope(); BackHandler(enabled = !busy, onBack = close)
@@ -2910,11 +2912,11 @@ private fun ArtifactDeliveryComposer(container: AppContainer, uploadId: String, 
         Button(onClick = { self = !self }, Modifier.fillMaxWidth()) { Text(if (self) "Deliver to me ✓" else "Deliver to me") }
         if (!self) OutlinedTextField(email, { email = it.take(254) }, Modifier.fillMaxWidth(), label = { Text("Recipient email") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = { later = false }, Modifier.weight(1f)) { Text(if (!later) "Send now ✓" else "Send now") }; Button(onClick = { later = true }, Modifier.weight(1f)) { Text(if (later) "Deliver later ✓" else "Deliver later") } }
-        if (later) OutlinedTextField(local, { local = it.take(16) }, Modifier.fillMaxWidth(), label = { Text("Local date and time") }, placeholder = { Text("2026-12-31T18:30") }, supportingText = { Text("Uses ${java.time.ZoneId.systemDefault().id}") }, singleLine = true)
+        if (later) DeliverySchedulePicker(local, deliveryZone, onChange = { local = it },
+            onZoneChange = { local = local.atZone(deliveryZone).withZoneSameInstant(it).toLocalDateTime(); deliveryZone = it })
         Button(onClick = { busy = true; scope.launch {
-            val parsed = if (later) runCatching { LocalDateTime.parse(local) }.getOrNull() else null
-            if (later && parsed == null) message = "Enter a valid local date and time."
-            else when (val made = container.lettersRepository.createArtifactDelivery(uploadId, name, email.takeIf { !self }, self, if (later) DeliveryMode.LATER else DeliveryMode.NOW, parsed)) {
+            val parsed = if (later) local else null
+            when (val made = container.lettersRepository.createArtifactDelivery(uploadId, name, email.takeIf { !self }, self, if (later) DeliveryMode.LATER else DeliveryMode.NOW, parsed, deliveryZone.id)) {
                 is FeatureResult.Success -> message = if (self) "Delivery scheduled securely." else "Delivery created. Recipient verification is required before access."
                 is FeatureResult.Unavailable -> { message = made.message; deliveryContactRequired = made.code == "DELIVERY_CONTACT_REQUIRED" }
                 FeatureResult.AuthenticationRequired -> message = "Sign in again before creating delivery."

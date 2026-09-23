@@ -7,6 +7,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StorybookThemeTest {
+    @Test fun `theme catalog matches web choices`() {
+        assertEquals(setOf("System", "Light", "Dark", "Narratrace Blue", "Warm Memory", "Sage Heritage", "Lavender Story", "Rose Keepsake", "Midnight Archive", "Heirloom", "Chai Latte", "Narratrace Daylight", "Narratrace Marigold", "Narratrace Lamplight"), NarratraceAppearance.entries.map { it.displayName }.toSet())
+    }
     private fun contrast(a: Color, b: Color): Double {
         val x = a.luminance().toDouble(); val y = b.luminance().toDouble()
         return (maxOf(x, y) + .05) / (minOf(x, y) + .05)

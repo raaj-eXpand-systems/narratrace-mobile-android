@@ -16,35 +16,16 @@ internal val LightColors = storybookColors(false, 0xFFFFF9EE, 0xFFFFFDF8, 0xFFF2
 internal val DarkColors = storybookColors(true, 0xFF111512, 0xFF1D2520, 0xFF29372D,
     0xFFF4EDE1, 0xFFCBD1C8, 0xFFE7B86A, 0xFF241B0C, 0xFF9BAE9D, 0xFFFFAAA2)
 
-// Customer preview of the cool Liquid Glass direction used across Narratrace.
-// Compose content surfaces remain opaque and legible; navigation and transient
-// controls can layer Material 3 tonal surfaces above this luminous canvas.
-private val UpcomingColors = lightColorScheme(
-    primary = Color(0xFF0866FF),
-    onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFDCE9FF),
-    onPrimaryContainer = Color(0xFF102A56),
-    secondary = Color(0xFF7559FF),
-    onSecondary = Color(0xFFFFFFFF),
-    tertiary = Color(0xFF00A7C7),
-    background = Color(0xFFF4F8FF),
-    surface = Color(0xFFFFFFFF),
-    surfaceVariant = Color(0xFFEAF1FF),
-    onSurface = Color(0xFF101828),
-    onSurfaceVariant = Color(0xFF475467),
-    outline = Color(0xFF98A2B3),
-    error = Color(0xFFD92D20),
-)
-
-private val ChaiLatteColors = lightColorScheme(
-    primary = Color(0xFF8C2F43), onPrimary = Color.White,
-    primaryContainer = Color(0xFFF3C3C9), onPrimaryContainer = Color(0xFF351017),
-    secondary = Color(0xFF4E644B), onSecondary = Color.White,
-    tertiary = Color(0xFFA85E13), background = Color(0xFFF3D4A5),
-    surface = Color(0xFFFFF1D4), surfaceVariant = Color(0xFFE9BE80),
-    onSurface = Color(0xFF201C18), onSurfaceVariant = Color(0xFF5E4B3A),
-    outline = Color(0xFF766353), error = Color(0xFF9F293B),
-)
+// Web palette tokens adapted to opaque native surfaces. UpcomingPreview remains
+// the stored identifier for Narratrace Blue so existing preferences keep working.
+private val UpcomingColors = storybookColors(false, 0xFFF5F7FC, 0xFFFFFFFF, 0xFFEAF0FB, 0xFF101828, 0xFF475467, 0xFF1857D8, 0xFFFFFFFF, 0xFF667085, 0xFFD92D20)
+private val WarmMemoryColors = storybookColors(false, 0xFFFAF6F0, 0xFFFFFDFC, 0xFFF3E8DA, 0xFF392A20, 0xFF69584B, 0xFF8C5632, 0xFFFFFFFF, 0xFF806D5E, 0xFFB5473C)
+private val SageHeritageColors = storybookColors(false, 0xFFF3F6F2, 0xFFFFFFFF, 0xFFE4ECE5, 0xFF25352D, 0xFF4F6356, 0xFF3F684B, 0xFFFFFFFF, 0xFF5D7064, 0xFFB5473C)
+private val LavenderStoryColors = storybookColors(false, 0xFFF7F4FA, 0xFFFFFFFF, 0xFFEEE8F4, 0xFF302A3E, 0xFF5D526D, 0xFF795CA5, 0xFFFFFFFF, 0xFF736780, 0xFFB5475A)
+private val RoseKeepsakeColors = storybookColors(false, 0xFFFBF5F5, 0xFFFFFFFF, 0xFFF5E7E9, 0xFF412B32, 0xFF6F5059, 0xFF92434F, 0xFFFFFFFF, 0xFF84646C, 0xFFB42318)
+private val MidnightArchiveColors = storybookColors(true, 0xFF101827, 0xFF182235, 0xFF22304A, 0xFFF4F7FF, 0xFFB8C3D8, 0xFF73A5FF, 0xFF101827, 0xFF93A2BD, 0xFFFF7A70)
+private val HeirloomColors = storybookColors(false, 0xFFF7F3EC, 0xFFFFFCF7, 0xFFEEE4D3, 0xFF372C1E, 0xFF665945, 0xFF765520, 0xFFFFFFFF, 0xFF7A6A52, 0xFFAD493F)
+private val ChaiLatteColors = storybookColors(false, 0xFFF3D4A5, 0xFFFFF1D4, 0xFFE9BE80, 0xFF201C18, 0xFF5E4B3A, 0xFF8C2F43, 0xFFFFFFFF, 0xFF705B47, 0xFF9F293B)
 
 // Shared web tokens adapted to opaque Material surfaces. All foreground and
 // container roles are explicit so Material defaults cannot introduce a new palette.
@@ -100,6 +81,13 @@ enum class NarratraceAppearance {
     Dark,
     UpcomingPreview,
     ChaiLatte,
+    WarmMemory,
+    SageHeritage,
+    LavenderStory,
+    RoseKeepsake,
+    MidnightArchive,
+    Heirloom,
+
     Daylight,
     Marigold,
     Lamplight;
@@ -107,6 +95,12 @@ enum class NarratraceAppearance {
     val displayName: String get() = when (this) {
         UpcomingPreview -> "Narratrace Blue"
         ChaiLatte -> "Chai Latte"
+        WarmMemory -> "Warm Memory"
+        SageHeritage -> "Sage Heritage"
+        LavenderStory -> "Lavender Story"
+        RoseKeepsake -> "Rose Keepsake"
+        MidnightArchive -> "Midnight Archive"
+        Heirloom -> "Heirloom"
         Daylight -> "Narratrace Daylight"
         Marigold -> "Narratrace Marigold"
         Lamplight -> "Narratrace Lamplight"
@@ -126,6 +120,12 @@ fun NarratraceTheme(
         NarratraceAppearance.Dark -> DarkColors
         NarratraceAppearance.UpcomingPreview -> UpcomingColors
         NarratraceAppearance.ChaiLatte -> ChaiLatteColors
+        NarratraceAppearance.WarmMemory -> WarmMemoryColors
+        NarratraceAppearance.SageHeritage -> SageHeritageColors
+        NarratraceAppearance.LavenderStory -> LavenderStoryColors
+        NarratraceAppearance.RoseKeepsake -> RoseKeepsakeColors
+        NarratraceAppearance.MidnightArchive -> MidnightArchiveColors
+        NarratraceAppearance.Heirloom -> HeirloomColors
         NarratraceAppearance.Daylight -> DaylightColors
         NarratraceAppearance.Marigold -> MarigoldColors
         NarratraceAppearance.Lamplight -> LamplightColors
