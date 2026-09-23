@@ -28,6 +28,21 @@ private data class Profile(val email: String, val displayName: String? = null)
  */
 class NarratraceApiClientTest {
 
+    @Test fun `uploads accept the Supabase signed private bucket endpoint only`() {
+        val valid = "https://project.supabase.co/storage/v1/object/upload/sign/Uploads/mobile/photo.jpg?token=opaque"
+        assertTrue(isAllowedStorageUploadURL(valid))
+        for (unsafe in listOf(
+            valid.replace("/object/upload/", "/upload/"),
+            valid.replace("/sign/Uploads/", "/sign/Other/"),
+            valid.replace("https://", "http://"),
+            valid.replace("project.supabase.co", "project.supabase.co.evil.example"),
+            valid.replace("project.supabase.co", "user:password@project.supabase.co"),
+            valid.replace("project.supabase.co", "project.supabase.co:444"),
+            valid.substringBefore('?'), valid + "&extra=1", valid + "#fragment",
+            valid.replace("token=opaque", "token=")
+        )) assertFalse(unsafe, isAllowedStorageUploadURL(unsafe))
+    }
+
     @Test fun `signed photo renditions retain the private storage boundary`() {
         assertTrue(isAllowedSignedStorageURL("https://project.supabase.co/storage/v1/render/image/sign/Uploads/photo.jpg?token=signed"))
         assertTrue(isAllowedSignedStorageURL("https://project.supabase.co/storage/v1/object/sign/Uploads/photo.jpg?token=signed"))

@@ -40,8 +40,10 @@ import kotlinx.serialization.serializer
 @Serializable private data class QuestionSpeechRequest(val messageId: String)
 @Serializable private data class InterviewTextResponse(val content: String)
 @Serializable data class RecordingCapacity(
-    val remainingBytes: Long, val remainingLabel: String, val audioMaxSeconds: Int, val videoMaxSeconds: Int,
-)
+    val remainingBytes: Long, val audioMaxSeconds: Int, val videoMaxSeconds: Int,
+) {
+    val remainingLabel: String get() = java.text.NumberFormat.getIntegerInstance().format(remainingBytes) + " bytes"
+}
 @Serializable data class LegalAcceptance(
     val termsAccepted: Boolean, val privacyAcknowledged: Boolean, val aiNoticeAcknowledged: Boolean,
     val specialCategoryConsent: Boolean, val contentRightsAttested: Boolean,
@@ -60,7 +62,7 @@ import kotlinx.serialization.serializer
 @Serializable data class InterviewHighlight(val id: String, val title: String, val excerpt: String, val type: String)
 @Serializable data class InterviewInsights(val covered: List<String>, val highlights: List<InterviewHighlight>)
 @Serializable data class InterviewNarrative(val narrative: String? = null)
-@Serializable data class NarrativeGroundingConsent(val groundingAgreementAccepted: Boolean = true)
+@Serializable data class NarrativeGroundingConsent(val groundingAgreementAccepted: Boolean)
 @Serializable data class ProtectedPlayback(val url: String, val expiresIn: Int = 300)
 @Serializable data class InterviewShare(val shareToken: String? = null)
 @Serializable data class MediaSummary(val id: String, val kind: String, val title: String, val state: String, val duration: Int? = null, val createdAt: String)
@@ -148,7 +150,7 @@ class MediaAndInterviewApi(private val client: NarratraceApiClient) {
     suspend fun deleteInterview(id: String, token: String): ApiResult<InterviewMutation> = client.delete("/api/v1/interviews/${segment(id)}", serializer<InterviewMutation>(), token)
     suspend fun insights(id: String, token: String): ApiResult<InterviewInsights> = client.get("/api/v1/interviews/${segment(id)}/insights", serializer<InterviewInsights>(), token)
     suspend fun narrative(id: String, generate: Boolean, token: String): ApiResult<InterviewNarrative> = if (generate) client.post(
-        "/api/v1/interviews/${segment(id)}/narrative", NarratraceJson.encodeToString(NarrativeGroundingConsent()), serializer<InterviewNarrative>(), token,
+        "/api/v1/interviews/${segment(id)}/narrative", NarratraceJson.encodeToString(NarrativeGroundingConsent(groundingAgreementAccepted = true)), serializer<InterviewNarrative>(), token,
     ) else client.get("/api/v1/interviews/${segment(id)}/narrative", serializer<InterviewNarrative>(), token)
     suspend fun share(id: String, method: String, token: String): ApiResult<InterviewShare> = when (method) {
         "POST" -> client.post("/api/v1/interviews/${segment(id)}/share", null, serializer<InterviewShare>(), token)

@@ -145,10 +145,7 @@ class NarratraceApiClient(
     suspend fun putSignedStorage(url: String, bytes: ByteArray, mimeType: String): Boolean =
         withContext(Dispatchers.IO) {
             val parsed = url.toHttpUrlOrNull() ?: return@withContext false
-            if (parsed.scheme != "https" || parsed.username.isNotEmpty() || parsed.password.isNotEmpty() ||
-                (parsed.port != 443) || !parsed.host.endsWith(".supabase.co") ||
-                !parsed.encodedPath.startsWith("/storage/v1/upload/")
-            ) return@withContext false
+            if (!isAllowedStorageUploadURL(url)) return@withContext false
             val request = Request.Builder().url(parsed).put(bytes.toRequestBody(mimeType.toMediaType()))
                 .header("Content-Type", mimeType).header("Cache-Control", "no-store").build()
             runCatching { httpClient.newCall(request).await().use { it.isSuccessful } }.getOrDefault(false)
@@ -378,6 +375,15 @@ private suspend fun Call.await(): Response = suspendCoroutine { continuation ->
     })
 }
 
+
+internal fun isAllowedStorageUploadURL(url: String): Boolean {
+    val parsed = url.toHttpUrlOrNull() ?: return false
+    return parsed.scheme == "https" && parsed.username.isEmpty() && parsed.password.isEmpty() &&
+        parsed.port == 443 && parsed.host.endsWith(".supabase.co") &&
+        parsed.encodedPath.startsWith("/storage/v1/object/upload/sign/Uploads/") &&
+        parsed.fragment == null && parsed.querySize == 1 &&
+        parsed.queryParameterName(0) == "token" && !parsed.queryParameterValue(0).isNullOrEmpty()
+}
 
 internal fun isAllowedSignedStorageURL(url: String): Boolean {
     val parsed = url.toHttpUrlOrNull() ?: return false

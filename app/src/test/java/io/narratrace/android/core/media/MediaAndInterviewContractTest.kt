@@ -18,6 +18,20 @@ import io.narratrace.android.app.PRIVACY_POLICY_URL
 import io.narratrace.android.app.TERMS_POLICY_URL
 
 class MediaAndInterviewContractTest {
+    @Test fun `narrative consent is transmitted explicitly after confirmation`() {
+        val body = NarratraceJson.encodeToString(NarrativeGroundingConsent.serializer(), NarrativeGroundingConsent(true))
+        assertEquals("{\"groundingAgreementAccepted\":true}", body)
+    }
+
+    @Test fun `recording capacity uses the server numeric contract without a display label`() {
+        val capacity = NarratraceJson.decodeFromString<RecordingCapacity>("""{"remainingBytes":1000000,"audioMaxSeconds":60,"videoMaxSeconds":15}""")
+        assertEquals(1000000L, capacity.remainingBytes)
+        assertEquals(60, capacity.audioMaxSeconds)
+        assertEquals(15, capacity.videoMaxSeconds)
+        assertTrue(capacity.remainingLabel.isNotBlank())
+        assertTrue(runCatching { NarratraceJson.decodeFromString<RecordingCapacity>("""{"remainingBytes":1000000}""") }.isFailure)
+    }
+
     @Test fun `interview contract tolerates additive fields`() {
         val list = NarratraceJson.decodeFromString<InterviewList>("""{
           "interviews":[{"id":"i-1","subjectName":"Maya","status":"active","messageCount":2,"createdAt":"now","updatedAt":"now","future":"safe"}],
