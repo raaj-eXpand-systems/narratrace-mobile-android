@@ -37,6 +37,7 @@ import kotlinx.serialization.serializer
     val requiresCheckout: Boolean = false,
     val preservationAcknowledgement: PreservationAcknowledgement? = null,
 )
+@Serializable private data class QuestionSpeechRequest(val messageId: String)
 @Serializable private data class InterviewTextResponse(val content: String)
 @Serializable data class RecordingCapacity(
     val remainingBytes: Long, val remainingLabel: String, val audioMaxSeconds: Int, val videoMaxSeconds: Int,
@@ -109,6 +110,7 @@ class MediaAndInterviewApi(private val client: NarratraceApiClient) {
         "/api/v1/uploads", mobileUploadRequestBody(item, "confirm", auth.storagePath), serializer<UploadConfirmation>(), token,
     )
     suspend fun transfer(auth: UploadAuthorization, bytes: ByteArray, mime: String) = client.putSignedStorage(auth.uploadUrl, bytes, mime)
+    suspend fun questionSpeech(id: String, messageId: String, token: String) = client.postAudio("/api/v1/interviews/${segment(id)}/speech", NarratraceJson.encodeToString(QuestionSpeechRequest(messageId)), token)
     suspend fun interviewAudio(id: String, messageId: String, token: String) = client.getAudio("/api/v1/interviews/${segment(id)}/messages/${segment(messageId)}/audio", token)
     suspend fun interviewVideo(id: String, messageId: String, token: String): ApiResult<ProtectedPlayback> = client.get("/api/v1/interviews/${segment(id)}/messages/${segment(messageId)}/media", serializer<ProtectedPlayback>(), token)
     suspend fun interviews(token: String): ApiResult<InterviewList> = client.get("/api/v1/interviews?limit=100", serializer<InterviewList>(), token)

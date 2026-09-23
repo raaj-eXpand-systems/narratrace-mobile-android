@@ -16,6 +16,8 @@ import android.widget.MediaController
 import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -34,6 +36,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -513,7 +517,7 @@ private fun RestrictedLifecycleScreen(
         if (signal.state == "closure_pending" && closureStatus is ApiResult.Failure) {
             Text((closureStatus as ApiResult.Failure).message, color = MaterialTheme.colorScheme.error)
         }
-        reopenMessage?.let { Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, color = MaterialTheme.colorScheme.error) }
+        reopenMessage?.let { Text(niaStyledText(it), Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, color = MaterialTheme.colorScheme.error) }
         signal.appealStatus.takeIf { it in setOf("available", "submitted") }?.let { Text("Appeal status: ${it.replace('_', ' ')}", Modifier.padding(top = 8.dp)) }
         signal.safeAppealUrl()?.let { appealUrl ->
             Button(
@@ -535,7 +539,7 @@ private fun LifecycleCheckFailure(message: String, retry: () -> Unit) {
     val context = LocalContext.current
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
         Text("Account status unavailable", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
-        Text(message, Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.error)
+        Text(niaStyledText(message), Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.error)
         Button(retry, Modifier.fillMaxWidth().padding(top = 20.dp)) { Text("Try again") }
         TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account?client=android".toUri())) }, Modifier.fillMaxWidth()) { Text("Account and privacy controls") }
     }
@@ -561,7 +565,7 @@ private fun RequiredLegalGate(container: AppContainer, content: @Composable () -
                 FeatureResult.AuthenticationRequired -> Text("Sign in again to continue.", color = MaterialTheme.colorScheme.error)
                 is FeatureResult.Unavailable -> {
                     Text("Account setup could not be verified.", style = MaterialTheme.typography.titleLarge)
-                    Text(current.message, color = MaterialTheme.colorScheme.error)
+                    Text(niaStyledText(current.message), color = MaterialTheme.colorScheme.error)
                     Button({ result = null; refresh++ }) { Text("Try again") }
                 }
                 is FeatureResult.Success -> Unit
@@ -577,7 +581,7 @@ private fun RequiredLegalGate(container: AppContainer, content: @Composable () -
         when (val current = result) {
             null -> item { LoadingMessage("Checking current document versions…") }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to review the current documents.", color = MaterialTheme.colorScheme.error) }
-            is FeatureResult.Unavailable -> item { Text(current.message, color = MaterialTheme.colorScheme.error); Button({ refresh++ }) { Text("Try again") } }
+            is FeatureResult.Unavailable -> item { Text(niaStyledText(current.message), color = MaterialTheme.colorScheme.error); Button({ refresh++ }) { Text("Try again") } }
             is FeatureResult.Success -> {
                 val legal = current.value
                 if (!legal.termsAccepted) item { LegalChoiceCard("Terms of Service", "Read the complete Terms before accepting.", TERMS_POLICY_URL, "Accept current Terms", busy) {
@@ -603,7 +607,7 @@ private fun RequiredLegalGate(container: AppContainer, content: @Composable () -
 private fun LegalChoiceCard(title: String, explanation: String, url: String, action: String, busy: Boolean, choose: () -> Unit) {
     val context = LocalContext.current
     Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, style = MaterialTheme.typography.titleMedium)
+        Text(niaStyledText(title), style = MaterialTheme.typography.titleMedium)
         Text(explanation)
         TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }) { Text("Read $title") }
         Button(choose, enabled = !busy) { Text(action) }
@@ -943,7 +947,7 @@ private fun AuthenticatedShell(
     val scope = rememberCoroutineScope()
     invite?.let { pending -> AlertDialog(
         onDismissRequest = {}, title = { Text(if (pending.kind == "family") "Join this family?" else "Join this Circle?") },
-        text = { Column { Text("Accepting grants access only according to the invitation. It does not automatically share your existing content."); inviteError?.let { Text(it, color = MaterialTheme.colorScheme.error) } } },
+        text = { Column { Text("Accepting grants access only according to the invitation. It does not automatically share your existing content."); inviteError?.let { Text(niaStyledText(it), color = MaterialTheme.colorScheme.error) } } },
         confirmButton = { Button(onClick = { decidingInvite = true; scope.launch { val decision = if (pending.kind == "family") container.familyRepository.decideFamily(pending.token, true) else container.familyRepository.decideCircle(pending.token, true); if (decision is FeatureResult.Success) { container.pendingInvite = null; invite = null } else inviteError = decision.failureMessage(); decidingInvite = false } }, enabled = !decidingInvite) { Text("Accept invitation") } },
         dismissButton = { TextButton(onClick = { decidingInvite = true; scope.launch { val decision = if (pending.kind == "family") container.familyRepository.decideFamily(pending.token, false) else container.familyRepository.decideCircle(pending.token, false); if (decision is FeatureResult.Success) { container.pendingInvite = null; invite = null } else inviteError = decision.failureMessage(); decidingInvite = false } }, enabled = !decidingInvite) { Text("Decline") } },
     ) }
@@ -1109,7 +1113,7 @@ private fun CustomerMoreScreen(
         when (val current = account) {
             null -> item { LoadingMessage("Loading account and security details…") }
             AccountResult.AuthenticationRequired -> item { Text("Sign in again to verify account access.", color = MaterialTheme.colorScheme.error) }
-            is AccountResult.Unavailable -> item { Text(current.message, color = MaterialTheme.colorScheme.error) }
+            is AccountResult.Unavailable -> item { Text(niaStyledText(current.message), color = MaterialTheme.colorScheme.error) }
             is AccountResult.Success -> item {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1140,7 +1144,7 @@ private fun CustomerMoreScreen(
             SecuritySessionsResult.AuthenticationRequired -> item { Text("Sign in again to verify active sessions.", color = MaterialTheme.colorScheme.error) }
             is SecuritySessionsResult.Unavailable -> item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(current.message, color = MaterialTheme.colorScheme.error)
+                    Text(niaStyledText(current.message), color = MaterialTheme.colorScheme.error)
                     if (current.supportReference.isNotBlank()) Text("Support reference: ${current.supportReference}", style = MaterialTheme.typography.bodySmall)
                     Button(onClick = { account = null; sessions = null; refreshKey++ }) { Text("Try again") }
                 }
@@ -1163,7 +1167,7 @@ private fun CustomerMoreScreen(
         when (val current = deliveries) {
             null -> item { LoadingMessage("Loading private deliveries…") }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify deliveries.", color = MaterialTheme.colorScheme.error) }
-            is FeatureResult.Unavailable -> item { Text(current.message, color = MaterialTheme.colorScheme.error) }
+            is FeatureResult.Unavailable -> item { Text(niaStyledText(current.message), color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Success -> if (current.value.deliveries.isEmpty()) item { Text("No scheduled artifact deliveries.") }
             else items(current.value.deliveries, key = { "delivery:${it.id}" }) { delivery -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("${delivery.artifactKind.replaceFirstChar(Char::uppercase)} for ${delivery.recipientName}", style = MaterialTheme.typography.titleMedium)
@@ -1312,7 +1316,7 @@ private fun AccountClosureScreen(container: AppContainer, modifier: Modifier, cl
                     Button({ confirmClose = true }, enabled = !closing, modifier = Modifier.fillMaxWidth()) { Text("Close my account") }
                 }
             }
-            is ApiResult.Failure -> item { Text(current.message, color = MaterialTheme.colorScheme.error) }
+            is ApiResult.Failure -> item { Text(niaStyledText(current.message), color = MaterialTheme.colorScheme.error) }
         }
         message?.let { current -> item {
             Text(current, Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, color = MaterialTheme.colorScheme.error)
@@ -1377,7 +1381,7 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
         item { ThemeChoices(container.appearanceStore.load()) { appearance ->
             if (container.appearanceStore.save(appearance)) (context as? Activity)?.recreate()
         } }
-        item { Text(MEDIA_INSIGHTS_HEADING, Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge) }
+        item { Text(niaStyledText(MEDIA_INSIGHTS_HEADING), Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge) }
         item { Text("Photo and video insights are optional and off by default. Review each disclosure before allowing that use. Turning either off keeps your media usable.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         (mediaAiPreferences as? FeatureResult.Success)?.value?.let { state ->
             val prefs = state.preferences
@@ -1386,7 +1390,7 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
                 val disclosure = state.disclosure(choice.first)
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(choice.second.first + if (choice.second.second) " · On" else " · Off", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
-                    Text(disclosure?.copy ?: "The current disclosure is unavailable. Reload it before enabling insights.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(niaStyledText(disclosure?.copy ?: "The current disclosure is unavailable. Reload it before enabling insights."), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     fun saveChoice(enabled: Boolean) {
                         busy = true
                         scope.launch {
@@ -1411,9 +1415,9 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
             else -> "Loading media AI choices…"
         }, Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
         item { TextButton(onClick = { busy = true; scope.launch { mediaAiPreferences = container.settingsRepository.mediaAiPreferences(); busy = false } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Reload media AI disclosures") } }
-        mediaAiMessage?.let { item { Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Polite }) } }
+        mediaAiMessage?.let { item { Text(niaStyledText(it), Modifier.semantics { liveRegion = LiveRegionMode.Polite }) } }
         item { Text("Sensitive story information", style = MaterialTheme.typography.titleMedium) }
-        item { Text("This separate optional consent allows Nia to process story details that may reveal sensitive information. Withdrawing it stops future AI interview processing; preserved content remains available.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text(niaStyledText("This separate optional consent allows Nia to process story details that may reveal sensitive information. Withdrawing it stops future AI interview processing; preserved content remains available."), color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { Button(onClick = { busy = true; scope.launch {
             val current = (legal as? FeatureResult.Success)?.value
             val changed = if (current?.specialCategoryConsent == true) container.mediaRepository.withdrawSpecialCategoryConsent() else container.mediaRepository.grantSpecialCategoryConsent()
@@ -1431,7 +1435,7 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
         item { Text("Notifications never include Memory, Letter, interview, or family content. In-app Activity remains authoritative.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { Button(onClick = { if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS) else registerPush() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Enable push notifications") } }
         item { Button(onClick = { busy = true; scope.launch { container.settingsRepository.disablePush(Build.VERSION.RELEASE.take(40)); message = "Push notifications disabled for this installation."; busy = false } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Disable push notifications") } }
-        message?.let { item { Text(it, style = MaterialTheme.typography.bodySmall) } }
+        message?.let { item { Text(niaStyledText(it), style = MaterialTheme.typography.bodySmall) } }
     }
 }
 
@@ -1451,7 +1455,7 @@ private fun FamilySharingScreenContent(container: AppContainer, modifier: Modifi
         when (val loaded = family) {
             null -> item { LoadingMessage("Loading family access…") }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify family access.", color = MaterialTheme.colorScheme.error) }
-            is FeatureResult.Unavailable -> item { Text(loaded.message, color = MaterialTheme.colorScheme.error) }
+            is FeatureResult.Unavailable -> item { Text(niaStyledText(loaded.message), color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Success -> if (loaded.value.family == null) {
                 item { OutlinedTextField(familyName, { familyName = it.take(100) }, Modifier.fillMaxWidth(), label = { Text("Family name") }, singleLine = true) }
                 item { Button(onClick = { busy = true; scope.launch { val made = container.familyRepository.createFamily(familyName); message = if (made is FeatureResult.Success) "Family created. No Memories were shared." else (made as? FeatureResult.Unavailable)?.message; busy = false; refresh++ } }, enabled = !busy && familyName.trim().isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("Create family") } }
@@ -1473,15 +1477,15 @@ private fun FamilySharingScreenContent(container: AppContainer, modifier: Modifi
                 }
             }
         }
-        message?.let { item { Text(it, style = MaterialTheme.typography.bodySmall) } }
+        message?.let { item { Text(niaStyledText(it), style = MaterialTheme.typography.bodySmall) } }
         item { Text("Family Circles", style = MaterialTheme.typography.titleLarge) }
         item { Text("A Circle sees only completed interviews you explicitly select and Letters delivered to that Circle.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { OutlinedTextField(circleName, { circleName = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("New Circle name") }, singleLine = true) }
         item { OutlinedTextField(circleDescription, { circleDescription = it.take(500) }, Modifier.fillMaxWidth(), label = { Text("Description (optional)") }) }
         item { Button(onClick = { busy = true; scope.launch { val made = container.familyRepository.createCircle(circleName, circleDescription); if (made is FeatureResult.Success) { circleName = ""; circleDescription = ""; message = "Circle created. Nothing was shared." } else message = (made as? FeatureResult.Unavailable)?.message; busy = false; refresh++ } }, enabled = !busy && circleName.trim().isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("Create Circle") } }
         when (val loaded = circles) {
-            is FeatureResult.Success -> items(loaded.value.circles, key = { it.id }) { circle -> Card(Modifier.fillMaxWidth().clickable { selectedCircle = circle }) { Column(Modifier.padding(16.dp)) { Text(circle.name, style = MaterialTheme.typography.titleMedium); Text(circle.role.replaceFirstChar(Char::uppercase)); circle.description?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) } } } }
-            is FeatureResult.Unavailable -> item { Text(loaded.message, color = MaterialTheme.colorScheme.error) }
+            is FeatureResult.Success -> items(loaded.value.circles, key = { it.id }) { circle -> Card(Modifier.fillMaxWidth().clickable { selectedCircle = circle }) { Column(Modifier.padding(16.dp)) { Text(circle.name, style = MaterialTheme.typography.titleMedium); Text(circle.role.replaceFirstChar(Char::uppercase)); circle.description?.let { Text(niaStyledText(it), color = MaterialTheme.colorScheme.onSurfaceVariant) } } } }
+            is FeatureResult.Unavailable -> item { Text(niaStyledText(loaded.message), color = MaterialTheme.colorScheme.error) }
             else -> Unit
         }
     }
@@ -1499,10 +1503,10 @@ private fun CircleDetailScreen(container: AppContainer, circle: io.narratrace.an
     BackHandler(onBack = close)
     LazyColumn(modifier.fillMaxSize().imePadding(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to family sharing") }; Text(circle.name, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) } }
-        message?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+        message?.let { item { Text(niaStyledText(it), color = MaterialTheme.colorScheme.error) } }
         when (val loaded = detail) {
             null -> item { LoadingMessage("Opening this private Circle…") }
-            is FeatureResult.Unavailable -> item { Text(loaded.message, color = MaterialTheme.colorScheme.error) }
+            is FeatureResult.Unavailable -> item { Text(niaStyledText(loaded.message), color = MaterialTheme.colorScheme.error) }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify this Circle.", color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Success -> {
                 item { ContentReportButton(container, "circle", circle.id) }
@@ -1534,7 +1538,7 @@ private fun CircleDetailScreen(container: AppContainer, circle: io.narratrace.an
                     item { Button(onClick = { busy = true; scope.launch { val changed = container.familyRepository.circleAction(circle.id, "share", ids = selected.toList()); message = changed.failureMessage(); busy = false; if (changed is FeatureResult.Success) refresh++ } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Save Circle sharing") } }
                 }
                 item { Text("Shared Mosaic stories", style = MaterialTheme.typography.titleLarge) }
-                if (loaded.value.sharedMemories.isEmpty()) item { Text("No interviews have been explicitly shared.") } else items(loaded.value.sharedMemories, key = { it.id }) { memory -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) { Text(memory.subjectName, style = MaterialTheme.typography.titleMedium); memory.narrative?.let { Text(it) } } } }
+                if (loaded.value.sharedMemories.isEmpty()) item { Text("No interviews have been explicitly shared.") } else items(loaded.value.sharedMemories, key = { it.id }) { memory -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) { Text(memory.subjectName, style = MaterialTheme.typography.titleMedium); memory.narrative?.let { Text(niaStyledText(it)) } } } }
                 item { Text("Delivered Letters", style = MaterialTheme.typography.titleLarge) }
                 if (loaded.value.deliveredLetters.isEmpty()) item { Text("No Letters have been delivered to this Circle.") } else items(loaded.value.deliveredLetters, key = { it.id }) { letter -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) { Text(letter.subject, style = MaterialTheme.typography.titleMedium); Text(letter.body) } } }
                 if (circle.role == "owner") item { TextButton(onClick = { confirmDelete = true }, Modifier.fillMaxWidth()) { Text("Delete Circle", color = MaterialTheme.colorScheme.error) } }
@@ -1754,7 +1758,7 @@ private fun CustomerCaptureScreenContent(
                     )
                 }
                 photoMessage?.let { message -> item {
-                    Text(message, Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                    Text(niaStyledText(message), Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                         color = if (container.mediaRepository.latestReconciliationIssue() != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                 } }
                 if (!current.value.capabilities.captureVideo) item { Text("Video is not included in this plan.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -1796,7 +1800,7 @@ private fun LettersScreenContent(container: AppContainer, modifier: Modifier, cl
         when (val loaded = result) {
             null -> item { LoadingMessage("Loading private Letters…") }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify Letters.", color = MaterialTheme.colorScheme.error) }
-            is FeatureResult.Unavailable -> item { Text(loaded.message, color = MaterialTheme.colorScheme.error) }
+            is FeatureResult.Unavailable -> item { Text(niaStyledText(loaded.message), color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Success -> if (loaded.value.letters.isEmpty()) item { Text("No Letters yet.") } else items(loaded.value.letters, key = { it.id }) { letter ->
                 Card(Modifier.fillMaxWidth().clickable { selected = letter }) { Column(Modifier.padding(16.dp)) {
                     Text(letter.subject, style = MaterialTheme.typography.titleMedium)
@@ -1869,7 +1873,7 @@ private fun LetterComposerScreen(container: AppContainer, modifier: Modifier, dr
             }; saving = false
         } }, enabled = !saving && recipient.trim().isNotEmpty() && subject.trim().isNotEmpty() && body.trim().isNotEmpty() && (selfDelivery || (circleId != null && circleDetail is FeatureResult.Success) || (circleId == null && email.trim().isNotEmpty())), modifier = Modifier.fillMaxWidth()) { Text("Save Letter") }
         if (deliveryContactRequired) TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account?client=android#delivery-contact-email".toUri())) }) { Text("Verify delivery contact") }
-        message?.let { Text(it, color = if (it.contains("saved")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }
+        message?.let { Text(niaStyledText(it), color = if (it.contains("saved")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }
     }
 }
 
@@ -1907,7 +1911,7 @@ private fun LetterDetailScreen(container: AppContainer, letterId: String, modifi
                 OutlinedTextField(email, { email = it.take(254) }, Modifier.fillMaxWidth(), label = { Text("Correct recipient email") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
                 Button(onClick = { busy = true; scope.launch { val value = container.lettersRepository.manage(letter.id, "update_recipient_email", email); message = if (value is FeatureResult.Success) "Recipient updated. The previous verification link was revoked." else "Recipient could not be updated."; busy = false } }, enabled = !busy && email.trim().isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("Update recipient and resend") }
             }
-            message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            message?.let { Text(niaStyledText(it), style = MaterialTheme.typography.bodySmall) }
             if (letter.isOwner && letter.canCancel) TextButton(onClick = { confirmDelete = true }, Modifier.fillMaxWidth()) { Text("Cancel Letter", color = MaterialTheme.colorScheme.error) }
         } }
     }
@@ -1994,7 +1998,7 @@ private fun AudioCaptureScreen(
         if (waiting > 0) {
             Text("$waiting protected upload${if (waiting == 1) "" else "s"} waiting.", style = MaterialTheme.typography.bodySmall)
             protectedUploadAttention(container.mediaRepository.queue.items())?.let {
-                Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, color = MaterialTheme.colorScheme.error)
+                Text(niaStyledText(it), Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, color = MaterialTheme.colorScheme.error)
             }
             if (allowUpload) TextButton(onClick = { busy = true; scope.launch {
                 val remaining = container.mediaRepository.reconcile()
@@ -2031,11 +2035,11 @@ private fun GuidedInterviewsScreen(container: AppContainer, modifier: Modifier, 
             IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
             Text("Stories", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
         } }
-        item { Text("$NIA_DEFINITION Nia uses your responses to suggest thoughtful follow-up questions. AI may make mistakes; review generated material before relying on or sharing it.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text(niaStyledText("$NIA_DEFINITION Nia uses your responses to suggest thoughtful follow-up questions. AI may make mistakes; review generated material before relying on or sharing it."), color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (legal is FeatureResult.Success && !(legal as FeatureResult.Success<io.narratrace.android.core.media.LegalAcceptance>).value.aiNoticeAcknowledged) {
             item { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("AI notice", style = MaterialTheme.typography.titleMedium)
-                Text("Nia uses your responses to generate follow-up questions, transcripts, summaries, insights, and requested narratives. AI can make mistakes; review results before relying on or sharing them.")
+                Text(niaStyledText("Nia uses your responses to generate follow-up questions, transcripts, summaries, insights, and requested narratives. AI can make mistakes; review results before relying on or sharing them."))
                 val context = LocalContext.current
                 TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, "$TERMS_POLICY_URL#ai-generated-content".toUri())) }) { Text("Read the AI notice") }
                 Button(onClick = { accepting = true; scope.launch { legal = container.mediaRepository.acknowledgeAiNotice(); accepting = false } }, enabled = !accepting) { Text("Acknowledge AI notice") }
@@ -2044,7 +2048,7 @@ private fun GuidedInterviewsScreen(container: AppContainer, modifier: Modifier, 
         if (legal is FeatureResult.Success && !(legal as FeatureResult.Success<io.narratrace.android.core.media.LegalAcceptance>).value.specialCategoryConsent) {
             item { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Optional sensitive-story consent", style = MaterialTheme.typography.titleMedium)
-                Text("Guided interviews may reveal sensitive information about health, beliefs, identity, or family history. Allow this processing only if you want to use Nia for these interviews. This consent is separate and can be withdrawn in Profile and preferences.")
+                Text(niaStyledText("Guided interviews may reveal sensitive information about health, beliefs, identity, or family history. Allow this processing only if you want to use Nia for these interviews. This consent is separate and can be withdrawn in Profile and preferences."))
                 Button(onClick = { accepting = true; scope.launch { legal = container.mediaRepository.grantSpecialCategoryConsent(); accepting = false } }, enabled = !accepting) { Text("Allow sensitive-story processing") }
             } } }
         }
@@ -2076,7 +2080,7 @@ private fun GuidedInterviewsScreen(container: AppContainer, modifier: Modifier, 
         item { Text("Your interviews", style = MaterialTheme.typography.titleLarge) }
         when (val loaded = result) {
             null -> item { LoadingMessage("Refreshing your interviews…") }
-            is FeatureResult.Unavailable -> item { Text(loaded.message, color = MaterialTheme.colorScheme.error) }
+            is FeatureResult.Unavailable -> item { Text(niaStyledText(loaded.message), color = MaterialTheme.colorScheme.error) }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify interviews.", color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Success -> if (loaded.value.interviews.isEmpty()) item { Text("No interviews yet.") }
             else items(loaded.value.interviews, key = { it.id }) { interview -> Card(Modifier.fillMaxWidth().clickable { selected = interview }) { Column(Modifier.padding(16.dp)) {
@@ -2106,6 +2110,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
     var videoMessage by remember { mutableStateOf<String?>(null) }
     val modePreferences = remember(context) { context.getSharedPreferences("interview-modes.v1", android.content.Context.MODE_PRIVATE) }
     var recordingMode by remember(summary.id) { mutableStateOf(modePreferences.getString(summary.id, null)) }
+    val questionSpeech = rememberQuestionSpeech(container, summary.id)
     val scope = rememberCoroutineScope()
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) scope.launch {
@@ -2137,8 +2142,8 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
     )
     if (confirmNarrativeAgreement) AlertDialog(
         onDismissRequest = { confirmNarrativeAgreement = false },
-        title = { Text("Ask Nia to shape this story?") },
-        text = { Text("Nia may organize and lightly polish only what was shared. Nia must not add facts, events, names, places, dates, dialogue, emotions, or conclusions. If there is not enough detail, you will be asked to add another response.") },
+        title = { Text(niaStyledText("Ask Nia to shape this story?")) },
+        text = { Text(niaStyledText("Nia may organize and lightly polish only what was shared. Nia must not add facts, events, names, places, dates, dialogue, emotions, or conclusions. If there is not enough detail, you will be asked to add another response.")) },
         confirmButton = { Button(onClick = { confirmNarrativeAgreement = false; sending = true; scope.launch { when (val outcome = container.mediaRepository.narrative(summary.id, true)) {
             is FeatureResult.Success -> { processingMessage = null; refresh++ }
             is FeatureResult.Unavailable -> processingMessage = outcome.message
@@ -2171,11 +2176,11 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
             Text(summary.subjectName, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
         } }
         item { ContentReportButton(container, "interview", summary.id) }
-        item { Text("This interview is private. Nia’s suggestions are AI-generated and should be reviewed.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text(niaStyledText("This interview is private. Nia’s voice is AI-generated. Review Nia’s suggestions before sharing."), color = MaterialTheme.colorScheme.onSurfaceVariant) }
         when (val loaded = result) {
             null -> item { LoadingMessage("Loading protected interview details…") }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify this interview.", color = MaterialTheme.colorScheme.error) }
-            is FeatureResult.Unavailable -> item { Text(loaded.message, color = MaterialTheme.colorScheme.error) }
+            is FeatureResult.Unavailable -> item { Text(niaStyledText(loaded.message), color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Success -> {
                 if (loaded.value.interview.status != "complete") item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2191,8 +2196,17 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
                     listOfNotNull(loaded.value.messages.lastOrNull { it.role == "assistant" })
                 } else loaded.value.messages
                 items(visibleMessages, key = { it.id }) { message -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(if (recordingMode == "together") 20.dp else 12.dp)) {
-                    Text(if (message.role == "assistant") "Nia" else "You", style = MaterialTheme.typography.labelMedium)
-                    Text(message.content, style = if (recordingMode == "together") MaterialTheme.typography.headlineLarge else MaterialTheme.typography.bodyLarge)
+                    Text(niaStyledText(if (message.role == "assistant") "Nia" else "You"), style = MaterialTheme.typography.labelMedium)
+                    Text(niaStyledText(message.content), style = if (recordingMode == "together") MaterialTheme.typography.headlineLarge else MaterialTheme.typography.bodyLarge)
+                    if (message.role == "assistant" && message.content.isNotBlank()) {
+                        TextButton(onClick = { questionSpeech.toggle(message.id) { container.mediaRepository.questionSpeech(summary.id, message.id) } }, enabled = !audio) {
+                            Icon(if (questionSpeech.messageId == message.id) Icons.Default.Stop else Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(if (questionSpeech.messageId == message.id) "Stop reading" else "Read aloud")
+                        }
+                        Text(niaStyledText("Nia"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (questionSpeech.failedMessageId == message.id) questionSpeech.error?.let { Text(niaStyledText(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                    }
                     if (message.hasMedia) InterviewRecording(container, summary.id, message.id, message.mediaType)
                 } } }
                 if (loaded.value.interview.status != "complete") {
@@ -2207,9 +2221,9 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
                             sending = false
                         } }, enabled = !sending && response.trim().isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("Send response") } }
                     }
-                    if (recordingMode != null) item { Button(onClick = { audio = true }, enabled = (capacity as? FeatureResult.Success)?.value?.audioMaxSeconds?.let { it > 0 } == true, modifier = Modifier.fillMaxWidth().height(if (recordingMode == "together") 80.dp else 48.dp)) { Text("Record audio response") } }
+                    if (recordingMode != null) item { Button(onClick = { questionSpeech.stop(); audio = true }, enabled = (capacity as? FeatureResult.Success)?.value?.audioMaxSeconds?.let { it > 0 } == true, modifier = Modifier.fillMaxWidth().height(if (recordingMode == "together") 80.dp else 48.dp)) { Text("Record audio response") } }
                     if (recordingMode == "self") item { Button(onClick = { videoPicker.launch("video/*") }, enabled = (capacity as? FeatureResult.Success)?.value?.videoMaxSeconds?.let { it > 0 } == true, modifier = Modifier.fillMaxWidth()) { Text("Add video response") } }
-                    videoMessage?.let { item { Text(it, style = MaterialTheme.typography.bodySmall) } }
+                    videoMessage?.let { item { Text(niaStyledText(it), style = MaterialTheme.typography.bodySmall) } }
                     item { when (val available = capacity) {
                         is FeatureResult.Success -> Text("${available.value.remainingLabel} remains · audio up to ${available.value.audioMaxSeconds / 60}m ${available.value.audioMaxSeconds % 60}s. Capacity is checked again before transfer.", style = MaterialTheme.typography.bodySmall)
                         else -> Text("Recording capacity is unavailable. Refresh before recording audio.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
@@ -2299,7 +2313,7 @@ private fun WrittenMemoryComposer(
         )
         when (val current = outcome) {
             is WrittenMemoryResult.Unavailable -> {
-                Text(current.message, color = MaterialTheme.colorScheme.error)
+                Text(niaStyledText(current.message), color = MaterialTheme.colorScheme.error)
                 if (current.supportReference.isNotBlank()) Text("Support reference: ${current.supportReference}", style = MaterialTheme.typography.bodySmall)
             }
             WrittenMemoryResult.AuthenticationRequired -> Text("Sign in again before preserving this Memory.", color = MaterialTheme.colorScheme.error)
@@ -2408,7 +2422,7 @@ private fun VerifiedPeople(mode: String, people: List<RemotePerson>, open: (Remo
                 Card(Modifier.fillMaxWidth().clickable { open(person) }) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text(person.name, style = MaterialTheme.typography.titleMedium)
-                        person.relation?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        person.relation?.let { Text(niaStyledText(it), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         Text("${person.interviewCount} interviews · ${person.letterCount} Letters", style = MaterialTheme.typography.bodySmall)
                         if (person.source == "derived") Text("Connected from existing content", style = MaterialTheme.typography.labelMedium)
                     }
@@ -2456,7 +2470,7 @@ private fun VerifiedPersonDetail(person: RemotePersonDetail, modifier: Modifier,
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to People") }
                 Column {
                     Text(person.name, modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
-                    person.relation?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    person.relation?.let { Text(niaStyledText(it), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }
         }
@@ -2500,7 +2514,7 @@ private fun PersonEditorScreen(container: AppContainer, id: String?, initialName
             if (result is FeatureResult.Success) close() else message = (result as? FeatureResult.Unavailable)?.message ?: "Sign in again before saving this person."
             saving = false
         } }, enabled = !saving && name.trim().isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("Save person") }
-        message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        message?.let { Text(niaStyledText(it), color = MaterialTheme.colorScheme.error) }
     }
 }
 
@@ -2520,7 +2534,7 @@ private fun RelationshipMapScreen(people: List<RemotePerson>, modifier: Modifier
     LazyColumn(modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to People") }; Text("Relationship map", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) } }
         item { Text("Relationships determine placement. Edit a person’s relationship to move them between generations.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        order.forEach { title -> groups[title]?.let { members -> item { Text(title, style = MaterialTheme.typography.titleLarge) }; items(members, key = { "map:${it.id}" }) { person -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) { Text(person.name, style = MaterialTheme.typography.titleMedium); Text(person.relation ?: "Relationship not specified", color = MaterialTheme.colorScheme.onSurfaceVariant) } } } } }
+        order.forEach { title -> groups[title]?.let { members -> item { Text(niaStyledText(title), style = MaterialTheme.typography.titleLarge) }; items(members, key = { "map:${it.id}" }) { person -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) { Text(person.name, style = MaterialTheme.typography.titleMedium); Text(person.relation ?: "Relationship not specified", color = MaterialTheme.colorScheme.onSurfaceVariant) } } } } }
         if (people.isEmpty()) {
             item { Text("Your relationship map is ready for its first person.", style = MaterialTheme.typography.titleLarge) }
             item { Text("Add a person to begin connecting the relationships in your story.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -2547,7 +2561,7 @@ private fun FeedbackSupportScreen(container: AppContainer, modifier: Modifier, c
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button({ kind = "feedback"; screenshot = null; status = null }, enabled = kind != "feedback") { Text("Feedback") }; Button({ kind = "issue"; status = null }, enabled = kind != "issue") { Text("Report an issue") } }
         if (kind == "issue") { Text("Screen reference: Android app · More"); Button({ picker.launch("image/*") }, Modifier.fillMaxWidth()) { Text(if (screenshot == null) "Attach one image" else "Replace attached image") }; if (screenshot != null) TextButton({ screenshot = null }) { Text("Remove attachment") }; Text("PNG, JPEG, or WebP up to 5 MB. Avoid private family content unless needed to explain the issue.", style = MaterialTheme.typography.bodySmall) }
         OutlinedTextField(message, { message = it.take(5_001); status = null }, Modifier.fillMaxWidth().height(220.dp), label = { Text(if (kind == "issue") "What happened?" else "Your feedback") }, supportingText = { Text("${message.length} of 5,000 characters") })
-        status?.let { Text(it, color = if (it.contains("sent")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }
+        status?.let { Text(niaStyledText(it), color = if (it.contains("sent")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }
         Button(onClick = { sending = true; scope.launch {
             val profile = container.settingsRepository.profile(); val sender = (profile as? FeatureResult.Success)?.value?.profile?.displayName
             val result = if (sender == null) FeatureResult.AuthenticationRequired else container.supportRepository.submitFeedback(sender, kind, message, "Android app · More", screenshot)
@@ -2593,7 +2607,7 @@ private fun ActivityScreen(container: AppContainer, modifier: Modifier, close: (
     LaunchedEffect(refresh) { result = container.customerRepository.activity() }
     LazyColumn(modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }; Text("Activity", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) } }
-        when (val current = result) { null -> item { LoadingMessage("Refreshing Activity…") }; FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify Activity.", color = MaterialTheme.colorScheme.error) }; is FeatureResult.Unavailable -> item { Text(current.message, color = MaterialTheme.colorScheme.error) }; is FeatureResult.Success -> if (current.value.items.isEmpty()) item { Text("Nothing needs your attention.") } else items(current.value.items, key = { "activity:${it.id}" }) { item -> Card(Modifier.fillMaxWidth().clickable(enabled = item.kind == "processing") { selected = item.id }) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { Text(item.title ?: item.announcement ?: "Narratrace update", style = MaterialTheme.typography.titleMedium); item.body?.let { Text(it) }; item.progress?.let { LinearProgressIndicator({ it.coerceIn(0,100) / 100f }, Modifier.fillMaxWidth()) }; if (item.kind == "processing") Text("Open processing details", style = MaterialTheme.typography.labelMedium) } } } }
+        when (val current = result) { null -> item { LoadingMessage("Refreshing Activity…") }; FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify Activity.", color = MaterialTheme.colorScheme.error) }; is FeatureResult.Unavailable -> item { Text(niaStyledText(current.message), color = MaterialTheme.colorScheme.error) }; is FeatureResult.Success -> if (current.value.items.isEmpty()) item { Text("Nothing needs your attention.") } else items(current.value.items, key = { "activity:${it.id}" }) { item -> Card(Modifier.fillMaxWidth().clickable(enabled = item.kind == "processing") { selected = item.id }) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { Text(item.title ?: item.announcement ?: "Narratrace update", style = MaterialTheme.typography.titleMedium); item.body?.let { Text(niaStyledText(it)) }; item.progress?.let { LinearProgressIndicator({ it.coerceIn(0,100) / 100f }, Modifier.fillMaxWidth()) }; if (item.kind == "processing") Text("Open processing details", style = MaterialTheme.typography.labelMedium) } } } }
     }
 }
 
@@ -2603,14 +2617,14 @@ private fun ProcessingDetailScreen(container: AppContainer, id: String, modifier
     LaunchedEffect(id, refresh) { result = container.supportRepository.processing(id) }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { IconButton(close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Activity") }; Text("Processing details", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
-        when (val current = result) { null -> LoadingMessage("Checking processing state…"); FeatureResult.AuthenticationRequired -> Text("Sign in again to verify this processing item.", color = MaterialTheme.colorScheme.error); is FeatureResult.Unavailable -> Text(current.message, color = MaterialTheme.colorScheme.error); is FeatureResult.Success -> { val job = current.value; Text(job.state.replace('_',' ').replaceFirstChar(Char::uppercase), style = MaterialTheme.typography.titleLarge); Text(job.failureCategory ?: if (job.state == "preserved") "The original is preserved." else "The original remains protected while processing continues."); Text("Type: ${job.jobType.replace('_',' ').replaceFirstChar(Char::uppercase)}"); Text("Updated: ${job.updatedAt}"); job.progress?.let { LinearProgressIndicator({ it.coerceIn(0,100) / 100f }, Modifier.fillMaxWidth()) }; if (job.canRetry) { Button({ retrying = true; scope.launch { container.supportRepository.retryProcessing(id); retrying = false; refresh++ } }, enabled = !retrying, modifier = Modifier.fillMaxWidth()) { Text(if (retrying) "Retrying…" else "Try processing again") }; Text("Retrying optional processing does not replace or remove the preserved original.", style = MaterialTheme.typography.bodySmall) } } }
+        when (val current = result) { null -> LoadingMessage("Checking processing state…"); FeatureResult.AuthenticationRequired -> Text("Sign in again to verify this processing item.", color = MaterialTheme.colorScheme.error); is FeatureResult.Unavailable -> Text(niaStyledText(current.message), color = MaterialTheme.colorScheme.error); is FeatureResult.Success -> { val job = current.value; Text(job.state.replace('_',' ').replaceFirstChar(Char::uppercase), style = MaterialTheme.typography.titleLarge); Text(job.failureCategory ?: if (job.state == "preserved") "The original is preserved." else "The original remains protected while processing continues."); Text("Type: ${job.jobType.replace('_',' ').replaceFirstChar(Char::uppercase)}"); Text("Updated: ${job.updatedAt}"); job.progress?.let { LinearProgressIndicator({ it.coerceIn(0,100) / 100f }, Modifier.fillMaxWidth()) }; if (job.canRetry) { Button({ retrying = true; scope.launch { container.supportRepository.retryProcessing(id); retrying = false; refresh++ } }, enabled = !retrying, modifier = Modifier.fillMaxWidth()) { Text(if (retrying) "Retrying…" else "Try processing again") }; Text("Retrying optional processing does not replace or remove the preserved original.", style = MaterialTheme.typography.bodySmall) } } }
     }
 }
 
 @Composable
 private fun LoadingSurface(modifier: Modifier, title: String, message: String) {
     Column(modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(title, modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
+        Text(niaStyledText(title), modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
         LoadingMessage(message)
     }
 }
@@ -2622,13 +2636,13 @@ private fun LoadingMessage(message: String) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         CircularProgressIndicator(modifier = Modifier.size(24.dp))
-        Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(niaStyledText(message), color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
 private fun FailureSurface(modifier: Modifier, message: String) {
-    Column(modifier.fillMaxSize().padding(24.dp)) { Text(message, color = MaterialTheme.colorScheme.error) }
+    Column(modifier.fillMaxSize().padding(24.dp)) { Text(niaStyledText(message), color = MaterialTheme.colorScheme.error) }
 }
 
 @Composable
@@ -2640,8 +2654,8 @@ private fun RetrySurface(
     retry: () -> Unit,
 ) {
     Column(modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(title, modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
-        Text(message, color = MaterialTheme.colorScheme.error)
+        Text(niaStyledText(title), modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
+        Text(niaStyledText(message), color = MaterialTheme.colorScheme.error)
         if (supportReference.isNotBlank()) Text("Support reference: $supportReference", style = MaterialTheme.typography.bodySmall)
         Button(onClick = retry) { Text("Try again") }
     }
@@ -2689,7 +2703,7 @@ private fun CustomerLibraryScreenContent(container: AppContainer, modifier: Modi
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(if (wallOnly) "Wall unavailable" else "Media unavailable", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
-            Text(current.message, color = MaterialTheme.colorScheme.error)
+            Text(niaStyledText(current.message), color = MaterialTheme.colorScheme.error)
             if (current.supportReference.isNotBlank()) Text("Support reference: ${current.supportReference}", style = MaterialTheme.typography.bodySmall)
             Button(onClick = { result = null; refreshKey++ }) { Text("Try again") }
         }
@@ -2838,18 +2852,18 @@ private fun CustomerMediaDetailScreen(container: AppContainer, mediaId: String, 
                     } },
                     modifier = Modifier.fillMaxWidth().height(if (detail.kind == "video") 260.dp else 80.dp),
                 ) }
-                detail.caption?.takeIf(String::isNotBlank)?.let { Text(it) }
-                detail.transcript?.takeIf(String::isNotBlank)?.let { Text("Transcript", style = MaterialTheme.typography.titleLarge); Text(it) }
-                detail.summary?.takeIf(String::isNotBlank)?.let { Text("Summary", style = MaterialTheme.typography.titleLarge); Text(it) }
+                detail.caption?.takeIf(String::isNotBlank)?.let { Text(niaStyledText(it)) }
+                detail.transcript?.takeIf(String::isNotBlank)?.let { Text("Transcript", style = MaterialTheme.typography.titleLarge); Text(niaStyledText(it)) }
+                detail.summary?.takeIf(String::isNotBlank)?.let { Text("Summary", style = MaterialTheme.typography.titleLarge); Text(niaStyledText(it)) }
                 if (detail.tags.isNotEmpty() || detail.customTags.isNotEmpty()) Text((detail.tags + detail.customTags).joinToString(" · "), style = MaterialTheme.typography.bodySmall)
                 val clarifyingQuestions = visibleMediaClarifyingQuestions(detail.kind, photoInsightsEnabled, detail.clarifyingQuestions)
                 if (clarifyingQuestions.isNotEmpty()) {
-                    Text("Nia would like to clarify", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+                    Text(niaStyledText("Nia would like to clarify"), Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
                     clarifyingQuestions.forEach { question -> Text("• $question") }
-                    Text("Add what you know to the caption or your tags. Nia will use it only when Photo insights are enabled.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(niaStyledText("Add what you know to the caption or your tags. Nia will use it only when Photo insights are enabled."), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                saveMessage?.let { Text(it, Modifier.semantics { liveRegion = if (saveError) LiveRegionMode.Assertive else LiveRegionMode.Polite }, color = if (saveError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
-                OutlinedTextField(caption, { caption = it.take(300) }, Modifier.fillMaxWidth(), label = { Text(if (detail.kind == "photo") "Your memory" else "Caption") }, supportingText = { if (detail.kind == "photo") Text("Add names, places, dates, or the story behind the moment. Saving asks Nia to refresh its insights when Photo insights are enabled.") })
+                saveMessage?.let { Text(niaStyledText(it), Modifier.semantics { liveRegion = if (saveError) LiveRegionMode.Assertive else LiveRegionMode.Polite }, color = if (saveError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
+                OutlinedTextField(caption, { caption = it.take(300) }, Modifier.fillMaxWidth(), label = { Text(if (detail.kind == "photo") "Your memory" else "Caption") }, supportingText = { if (detail.kind == "photo") Text(niaStyledText("Add names, places, dates, or the story behind the moment. Saving asks Nia to refresh its insights when Photo insights are enabled.")) })
                 Button(onClick = { busy = true; scope.launch {
                     when (val saved = container.mediaRepository.updateCaption(mediaId, caption)) {
                         is FeatureResult.Success -> {
@@ -2907,7 +2921,7 @@ private fun ArtifactDeliveryComposer(container: AppContainer, uploadId: String, 
             }; busy = false
         } }, enabled = !busy && name.trim().isNotEmpty() && (self || email.trim().isNotEmpty()), modifier = Modifier.fillMaxWidth()) { Text("Create delivery") }
         if (deliveryContactRequired) TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account?client=android#delivery-contact-email".toUri())) }) { Text("Verify delivery contact") }
-        message?.let { Text(it, color = if (it.startsWith("Delivery")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }
+        message?.let { Text(niaStyledText(it), color = if (it.startsWith("Delivery")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }
     }
 }
 
@@ -3069,7 +3083,7 @@ private fun CustomerHomeScreen(container: AppContainer, modifier: Modifier = Mod
             Text("Home and Stories are included. Choose a plan to unlock the other workspaces.")
         }
         protectedUploadAttention(container.mediaRepository.queue.items())?.let {
-            Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, color = MaterialTheme.colorScheme.error)
+            Text(niaStyledText(it), Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, color = MaterialTheme.colorScheme.error)
         }
         when (val current = result) {
             null -> {
@@ -3080,7 +3094,7 @@ private fun CustomerHomeScreen(container: AppContainer, modifier: Modifier = Mod
                 color = MaterialTheme.colorScheme.error,
             )
             is CustomerHomeResult.Unavailable -> {
-                Text(current.message, color = MaterialTheme.colorScheme.error)
+                Text(niaStyledText(current.message), color = MaterialTheme.colorScheme.error)
                 if (current.supportReference.isNotBlank()) {
                     Text("Support reference: ${current.supportReference}", style = MaterialTheme.typography.bodySmall)
                 }
@@ -3111,7 +3125,7 @@ private fun VerifiedHome(customer: CustomerHome, activity: FeatureResult<io.narr
         null -> LoadingMessage("Refreshing Activity…")
         is FeatureResult.Success -> if (activity.value.items.isEmpty()) Text("No account activity yet.", color = MaterialTheme.colorScheme.onSurfaceVariant) else activity.value.items.forEach { item -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
             Text(item.title ?: item.announcement ?: item.kind.replace('_', ' ').replaceFirstChar(Char::uppercase), style = MaterialTheme.typography.titleMedium)
-            item.body?.let { Text(it) }; item.state?.let { Text(it.replace('_', ' '), style = MaterialTheme.typography.bodySmall) }
+            item.body?.let { Text(niaStyledText(it)) }; item.state?.let { Text(it.replace('_', ' '), style = MaterialTheme.typography.bodySmall) }
             item.progress?.let { LinearProgressIndicator(progress = { it.coerceIn(0, 100) / 100f }, Modifier.fillMaxWidth()) }
         } } }
         is FeatureResult.Unavailable -> Text(activity.message, color = MaterialTheme.colorScheme.error)

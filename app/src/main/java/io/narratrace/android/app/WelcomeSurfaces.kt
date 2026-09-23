@@ -125,7 +125,7 @@ internal fun OnboardingScreen(modifier: Modifier = Modifier, replay: Boolean = f
                     OutlinedCard(Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
-                            Column { Text(title, style = MaterialTheme.typography.titleSmall); Text(body, style = MaterialTheme.typography.bodySmall) }
+                            Column { Text(niaStyledText(title), style = MaterialTheme.typography.titleSmall); Text(body, style = MaterialTheme.typography.bodySmall) }
                         }
                     }
                 }
@@ -183,7 +183,7 @@ internal fun ReceptionDestinations(appearance: io.narratrace.android.core.ui.Nar
                 CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.primary) {
                     ArchiveNavigationIcon(tab.label, appearance, Modifier.size(28.dp))
                 }
-                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(niaStyledText(title), style = MaterialTheme.typography.titleMedium)
                 Text(description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -211,7 +211,7 @@ internal fun AccountAllowances(account: AccountSummary) {
         Text("Room for your memories", style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Serif)
         accountAllowanceLabels(account).forEach { (title, value) ->
             Column {
-                Text(title, style = MaterialTheme.typography.labelLarge)
+                Text(niaStyledText(title), style = MaterialTheme.typography.labelLarge)
                 Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -250,16 +250,16 @@ internal fun CaptureChoices(
 internal fun LibraryPhotoIllustration() {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Every old photo has a story it hasn't finished telling.", style = MaterialTheme.typography.headlineSmall)
-        Text("Upload a family photo to preserve it and add your own memory. If you enable optional photo insights, Nia can describe the scene, identify the era, and suggest helpful tags.")
+        Text(niaStyledText("Upload a family photo to preserve it and add your own memory. If you enable optional photo insights, Nia can describe the scene, identify the era, and suggest helpful tags."))
         Image(painterResource(R.drawable.library_sample),
             contentDescription = "A woman holding the Dance to Your Film Favourites and Saturday Night Fever vinyl records while a man places a record on a record player, with a cassette player in the background",
             modifier = Modifier.fillMaxWidth().aspectRatio(4f / 3f), contentScale = ContentScale.Fit)
         Text( "Illustrative example only. This sample photo will disappear as soon as you upload your own photo.", style = MaterialTheme.typography.titleMedium)
-        Text("Example Nia insight", style = MaterialTheme.typography.titleMedium)
+        Text(niaStyledText("Example Nia insight"), style = MaterialTheme.typography.titleMedium)
         Text("Two adults are sharing music indoors. One holds the readable Dance to Your Film Favourites and Saturday Night Fever record sleeves while the other places a vinyl record on a turntable; a cassette radio sits behind them.")
         Text("Era clue: Likely late 1970s to early 1980s, based on the records, cassette radio, clothing, and photographic print. This is an estimate.")
         Text("vinyl records · turntable · music at home · cassette radio · 1970s–1980s")
-        Text("Nia would ask: Who are the two people, and what do you remember about the records they chose?")
+        Text(niaStyledText("Nia would ask: Who are the two people, and what do you remember about the records they chose?"))
 
     }
 }

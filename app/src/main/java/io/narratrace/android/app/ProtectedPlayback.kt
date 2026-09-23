@@ -15,7 +15,84 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.narratrace.android.core.media.FeatureResult
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import java.net.URI
+
+/** One question player per interview; superseded and background loads cannot play. */
+internal class QuestionSpeechPlayback(private val scope: CoroutineScope) {
+    var messageId by mutableStateOf<String?>(null)
+        private set
+    var error by mutableStateOf<String?>(null)
+        private set
+    var failedMessageId by mutableStateOf<String?>(null)
+        private set
+    private var player: MediaPlayer? = null
+    private var audioSource: MediaDataSource? = null
+    private var job: Job? = null
+    private var generation = 0
+    fun stop() { generation++; job?.cancel(); job = null; player?.release(); player = null; audioSource?.close(); audioSource = null; messageId = null }
+    fun toggle(id: String, load: suspend () -> FeatureResult<ByteArray>) {
+        val stopping = messageId == id
+        stop(); error = null; failedMessageId = null
+        if (stopping) return
+        messageId = id
+        val current = generation
+        job = scope.launch {
+            when (val result = load()) {
+                is FeatureResult.Success -> {
+                    val bytes = result.value
+                    if (current != generation) { bytes.fill(0); return@launch }
+                    val source = object : MediaDataSource() {
+                        override fun getSize() = bytes.size.toLong()
+                        override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
+                            if (position < 0 || position >= bytes.size) return -1
+                            val count = minOf(size, bytes.size - position.toInt())
+                            bytes.copyInto(buffer, offset, position.toInt(), position.toInt() + count)
+                            return count
+                        }
+                        override fun close() { bytes.fill(0) }
+                    }
+                    audioSource = source
+                    try {
+                        val active = MediaPlayer()
+                        player = active
+                        active.setAudioAttributes(android.media.AudioAttributes.Builder()
+                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .setUsage(android.media.AudioAttributes.USAGE_MEDIA).build())
+                        active.setDataSource(source)
+                        active.setOnPreparedListener { if (current == generation) it.start() }
+                        active.setOnCompletionListener { if (current == generation) stop() }
+                        active.setOnErrorListener { _, _, _ -> if (current == generation) { stop(); failedMessageId = id; error = "Read-aloud could not play. Tap the speaker to try again." }; true }
+                        active.prepareAsync()
+                    } catch (failure: Exception) {
+                        source.close()
+                        if (failure is CancellationException) throw failure
+                        if (current == generation) { stop(); failedMessageId = id; error = "Read-aloud is unavailable. Tap the speaker to try again." }
+                    }
+                }
+                is FeatureResult.Unavailable -> if (current == generation) { stop(); failedMessageId = id; error = result.message }
+                FeatureResult.AuthenticationRequired -> if (current == generation) { stop(); failedMessageId = id; error = "Sign in again to read this question aloud." }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun rememberQuestionSpeech(container: AppContainer, interviewId: String): QuestionSpeechPlayback {
+    val scope = rememberCoroutineScope()
+    val auth by container.sessionManager.state.collectAsState()
+    val owner = (auth as? io.narratrace.android.core.auth.AuthState.Authenticated)?.session?.accountId
+    val player = remember(interviewId, owner) { QuestionSpeechPlayback(scope) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(player, lifecycle) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) player.stop() }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer); player.stop() }
+    }
+    return player
+}
 
 internal fun allowedStreamPlayback(url: String): Boolean = runCatching {
     val uri = URI(url)

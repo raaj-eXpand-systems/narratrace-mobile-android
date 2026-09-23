@@ -83,21 +83,30 @@ class NarratraceApiClient(
     ): ApiResult<T> = execute(path, "GET", null, serializer, bearer, null)
 
     /** Bounded, authenticated original audio; redirects cannot forward credentials. */
-    suspend fun getAudio(path: String, bearer: String): ApiResult<ByteArray> = withContext(Dispatchers.IO) {
+    suspend fun getAudio(path: String, bearer: String): ApiResult<ByteArray> = audio(path, bearer)
+
+    suspend fun postAudio(path: String, body: String, bearer: String): ApiResult<ByteArray> = audio(path, bearer, body)
+
+    private suspend fun audio(path: String, bearer: String, jsonBody: String? = null): ApiResult<ByteArray> = withContext(Dispatchers.IO) {
         val url = resolve(path) ?: return@withContext ApiResult.Unreadable(reason = "Invalid API origin")
         val request = Request.Builder().url(url).header("Authorization", "Bearer $bearer")
-            .header("Cache-Control", "no-store").header(HEADER_PLATFORM, "android").build()
+            .header("Cache-Control", "no-store").header(HEADER_PLATFORM, "android")
+            .apply { if (jsonBody != null) post(jsonBody.toRequestBody(JSON_MEDIA_TYPE)) }.build()
         try {
-            httpClient.newBuilder().followRedirects(false).followSslRedirects(false).build().newCall(request).await().use { response ->
+            httpClient.newBuilder().callTimeout(55, TimeUnit.SECONDS)
+                .apply { if (jsonBody != null) { readTimeout(55, TimeUnit.SECONDS); retryOnConnectionFailure(false) } }
+                .followRedirects(false).followSslRedirects(false).build().newCall(request).await().use { response ->
                 if (!response.isSuccessful) return@use decode(response, kotlinx.serialization.serializer<String>()).let { failure ->
                     if (failure is ApiResult.Failure) failure else ApiResult.Unreadable(reason = "Unexpected audio envelope")
                 }
                 val body = response.body ?: return@use ApiResult.Unreadable(reason = "Missing audio")
-                if (body.contentType()?.type != "audio") return@use ApiResult.Unreadable(reason = "Unexpected audio type")
+                if (body.contentType()?.type != "audio" || (jsonBody != null && body.contentType()?.subtype != "mpeg")) return@use ApiResult.Unreadable(reason = "Unexpected audio type")
                 val source = body.source()
-                val maxBytes = 50L * 1024 * 1024
+                val maxBytes = (if (jsonBody != null) 8L else 50L) * 1024 * 1024
                 if (source.request(maxBytes + 1)) return@use ApiResult.Unreadable(reason = "Audio exceeds supported size")
-                ApiResult.Success(source.readByteArray(), "")
+                val bytes = source.readByteArray()
+                if (bytes.isEmpty()) return@use ApiResult.Unreadable(reason = "Missing audio")
+                ApiResult.Success(bytes, "")
             }
         } catch (_: IOException) { ApiResult.Offline() }
     }

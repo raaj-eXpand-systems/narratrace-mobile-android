@@ -156,3 +156,16 @@ Final superseding gate evidence after isolation/refresh hardening: **197 unit te
 Owner switched the dedicated Chrome session into existing developer account 8655510549877321474, app 4974083165054418069, io.narratrace.android. Registration requirements are complete. Latest uploaded bundle is version 2 (1.0.0), active internal testing; version 3 remains available for this candidate. The final candidate upload-certificate SHA-256 matches the existing Play upload key: `34:85:51:E1:72:7E:CD:CF:78:E3:7A:77:4F:B2:C3:F7:6F:79:51:43:A4:D2:10:F3:6B:F8:39:C0:38:C1:4C:08`. Dedicated Chrome also verified production assetlinks includes the Play app-signing and upload fingerprints. No key rotation or new listing was created.
 
 Play setup is 8/11 complete: Content rating, Data safety and Store listing remain incomplete. Internal tester configuration, independent reviewer admission, real-device acceptance and genuine final screenshots remain release checks. Production is inactive. No new bundle uploaded or submitted.
+
+
+## 21 September 2026 — question speech implementation (local)
+
+OpenAI question read-aloud is implemented locally against the shared protected speech endpoint. See `../narratrace-question-tts-handoff-2026-09-21.md` for exact behavior, tests, cost-accounting SQL prerequisite and release limits; see `../narratrace-store-screenshot-plan-2026-09-21.md` for the six-screen capture plan. Nothing uploaded/submitted. The 20 September submission packages do not contain this code. Complete owner SQL verification, production-main service release and native runtime acceptance, then regenerate the store package. Manual release remains unchanged.
+
+## Verified cleanup candidate — 23 September 2026
+
+Pending Nia signature styling and protected question playback are included in the verified candidate. Both native clients use the released saved-message speech contract and preserve Marin. Security gate PASS for scoped changes: HTTPS/bearer authorization, no redirects or persistent speech cache, bounded MP3 playback, no automatic synthesis retry, account isolation and stale/background playback cancellation. No new permissions, dependencies, purchase links or server rule changes.
+
+Code Quality gate PASS: 202 unit tests, zero failures/errors/skips; lintDebug and assembleDebug; configured verifyStoreRelease, bundleRelease and assembleRelease. AAB signature verification reports jar verified. AAB and APK contain zero Markdown/MDX/SQL files. Version 1.0.0 (3). AAB SHA-256: 67756467ba90e69be1a35991798efe47f449cdb65ee3649a2ff60109e67f5575. APK SHA-256: 4c6e0d65dcfc711fd15da9faab30d3f1057bc40065104c675e0e246e734e8157. Existing build output paths hold the new candidate, superseding earlier binaries.
+
+iOS verification: 135 tests and signed App Store export pass for the same contract. No additional Admin, marketing or public-company fact change. QA follow-up remains physical audio routing/interruption and independent reviewer acceptance. No agents activated. Store screenshots, declarations, reviewer access and device acceptance remain open; source commit/push is not a Play upload or submission. Owner will verify web production manually.

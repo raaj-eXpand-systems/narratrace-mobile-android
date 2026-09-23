@@ -131,6 +131,16 @@ class MediaAndInterviewRepository(
         return queue.items().size
     }
 
+    suspend fun questionSpeech(id: String, messageId: String): FeatureResult<ByteArray> {
+        val owner = (sessions.state.value as? io.narratrace.android.core.auth.AuthState.Authenticated)?.session?.accountId
+            ?: return FeatureResult.AuthenticationRequired
+        val result = call { api.questionSpeech(id, messageId, it) }
+        if ((sessions.state.value as? io.narratrace.android.core.auth.AuthState.Authenticated)?.session?.accountId != owner) {
+            if (result is FeatureResult.Success) result.value.fill(0)
+            return FeatureResult.AuthenticationRequired
+        }
+        return result
+    }
     suspend fun interviewAudio(id: String, messageId: String) = call { api.interviewAudio(id, messageId, it) }
     suspend fun interviewVideo(id: String, messageId: String) = call { api.interviewVideo(id, messageId, it) }
     suspend fun interviews() = call { api.interviews(it) }
