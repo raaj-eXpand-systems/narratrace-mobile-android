@@ -28,7 +28,6 @@ class MediaAndInterviewContractTest {
         assertEquals(1000000L, capacity.remainingBytes)
         assertEquals(60, capacity.audioMaxSeconds)
         assertEquals(15, capacity.videoMaxSeconds)
-        assertTrue(capacity.remainingLabel.isNotBlank())
         assertTrue(runCatching { NarratraceJson.decodeFromString<RecordingCapacity>("""{"remainingBytes":1000000}""") }.isFailure)
     }
 

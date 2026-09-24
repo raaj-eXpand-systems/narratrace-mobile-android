@@ -42,7 +42,6 @@ import kotlinx.serialization.serializer
 @Serializable data class RecordingCapacity(
     val remainingBytes: Long, val audioMaxSeconds: Int, val videoMaxSeconds: Int,
 ) {
-    val remainingLabel: String get() = java.text.NumberFormat.getIntegerInstance().format(remainingBytes) + " bytes"
 }
 @Serializable data class LegalAcceptance(
     val termsAccepted: Boolean, val privacyAcknowledged: Boolean, val aiNoticeAcknowledged: Boolean,

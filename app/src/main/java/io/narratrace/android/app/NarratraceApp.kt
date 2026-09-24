@@ -2222,7 +2222,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
                     if (recordingMode == "self") item { Button(onClick = { videoPicker.launch("video/*") }, enabled = (capacity as? FeatureResult.Success)?.value?.videoMaxSeconds?.let { it > 0 } == true, modifier = Modifier.fillMaxWidth()) { Text("Add video response") } }
                     videoMessage?.let { item { Text(niaStyledText(it), style = MaterialTheme.typography.bodySmall) } }
                     item { when (val available = capacity) {
-                        is FeatureResult.Success -> Text("${available.value.remainingLabel} remains · audio up to ${available.value.audioMaxSeconds / 60}m ${available.value.audioMaxSeconds % 60}s. Capacity is checked again before transfer.", style = MaterialTheme.typography.bodySmall)
+                        is FeatureResult.Success -> Text("Audio up to ${available.value.audioMaxSeconds / 60}m ${available.value.audioMaxSeconds % 60}s · video up to ${available.value.videoMaxSeconds / 60}m ${available.value.videoMaxSeconds % 60}s per recording. Record another response afterward.", style = MaterialTheme.typography.bodySmall)
                         else -> Text("Recording capacity is unavailable. Refresh before recording audio.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     } }
                     if (recordingMode == "self") item { Button(onClick = { sending = true; scope.launch { val changed = container.mediaRepository.status(summary.id, "complete"); processingMessage = changed.failureMessage(); sending = false; if (changed is FeatureResult.Success) refresh++ } },
@@ -2304,7 +2304,7 @@ private fun WrittenMemoryComposer(
             enabled = !saving,
         )
         Text(
-            "Your writing remains private and is sent only when you choose Save securely. The same request key is reused if confirmation is uncertain.",
+            "Your writing remains private and is sent only when you choose Save securely.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
         )
