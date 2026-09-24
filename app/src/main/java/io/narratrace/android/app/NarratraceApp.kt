@@ -112,6 +112,7 @@ import io.narratrace.android.core.account.AccountLifecycleSignal
 import io.narratrace.android.core.account.allowsOrdinaryAccess
 import io.narratrace.android.core.account.requiresLocalPurge
 import io.narratrace.android.core.account.safeAppealUrl
+import io.narratrace.android.core.account.verifyAccountLifecycle
 import io.narratrace.android.core.customer.CustomerHome
 import io.narratrace.android.core.customer.CustomerHomeResult
 import io.narratrace.android.core.customer.CustomerMemoriesResult
@@ -418,16 +419,11 @@ private fun AccountLifecycleGate(
     var refresh by remember { mutableIntStateOf(0) }
     var localPurgeFailed by remember { mutableStateOf(false) }
     LaunchedEffect(accessCredential, refresh) {
-        val checked = container.accountLifecycleApi.signal(accessCredential)
-        if (checked is ApiResult.Unauthorized && (result as? ApiResult.Success)?.value?.allowsOrdinaryAccess() == true) {
-            // Rotation must not dispose an in-progress recorder or draft. The server
-            // remains authoritative for every protected operation.
-            when (container.sessionManager.recoverFromUnauthorized(accessCredential)) {
-                TokenLease.Unavailable -> Unit
-                is TokenLease.Valid -> Unit
-                else -> result = checked
-            }
-        } else if (!(checked is ApiResult.Offline && (result as? ApiResult.Success)?.value?.allowsOrdinaryAccess() == true)) result = checked
+        val checked = verifyAccountLifecycle(accessCredential,
+            container.accountLifecycleApi::signal, container.sessionManager::recoverFromUnauthorized)
+        // Preserve verified local work during connectivity loss, but never treat
+        // an unverified initial request or a server restriction as authorized.
+        if (!(checked is ApiResult.Offline && (result as? ApiResult.Success)?.value?.allowsOrdinaryAccess() == true)) result = checked
     }
     when (val current = result) {
         null -> ProtectedLoadingScreen()

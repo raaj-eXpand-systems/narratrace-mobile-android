@@ -2,6 +2,7 @@ package io.narratrace.android.core.account
 
 import io.narratrace.android.core.network.ApiResult
 import io.narratrace.android.core.network.NarratraceApiClient
+import io.narratrace.android.core.auth.TokenLease
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.serializer
@@ -78,6 +79,21 @@ internal fun AccountLifecycleSignal.requiresLocalPurge(): Boolean =
 
 internal fun AccountLifecycleSignal.allowsOrdinaryAccess(): Boolean =
     state in setOf("active", "lapsed", "dormant")
+
+/** Check restricted lifecycle signals before attempting ordinary session renewal. */
+internal suspend fun verifyAccountLifecycle(
+    credential: String,
+    load: suspend (String) -> ApiResult<AccountLifecycleSignal>,
+    renew: suspend (String) -> TokenLease,
+): ApiResult<AccountLifecycleSignal> {
+    val checked = load(credential)
+    if (checked !is ApiResult.Unauthorized) return checked
+    return when (val lease = renew(credential)) {
+        is TokenLease.Valid -> load(lease.accessToken)
+        TokenLease.Unavailable -> ApiResult.Offline("Account status could not be verified. Please try again.")
+        else -> checked
+    }
+}
 
 /** Only open the rights-preserving Narratrace appeal route supplied by the API. */
 internal fun AccountLifecycleSignal.safeAppealUrl(): String? {

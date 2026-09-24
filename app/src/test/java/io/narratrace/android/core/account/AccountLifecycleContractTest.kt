@@ -1,6 +1,9 @@
 package io.narratrace.android.core.account
 
 import io.narratrace.android.core.network.NarratraceJson
+import io.narratrace.android.core.network.ApiResult
+import io.narratrace.android.core.auth.TokenLease
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.encodeToString
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
@@ -9,6 +12,46 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AccountLifecycleContractTest {
+    @Test fun `expired initial account check renews once and verifies new credential`() = runTest {
+        val credentials = mutableListOf<String>()
+        var renewals = 0
+        val result = verifyAccountLifecycle("expired", load = {
+            credentials += it
+            if (it == "expired") ApiResult.Unauthorized("Expired", "fixture")
+            else ApiResult.Success(signal("active", "retain_encrypted"), "fixture")
+        }, renew = {
+            assertEquals("expired", it)
+            renewals++
+            TokenLease.Valid("renewed")
+        })
+        assertEquals(listOf("expired", "renewed"), credentials)
+        assertEquals(1, renewals)
+        assertTrue((result as ApiResult.Success).value.allowsOrdinaryAccess())
+    }
+
+    @Test fun `restricted lifecycle response never attempts ordinary renewal`() = runTest {
+        for (state in listOf("closure_pending", "suspended", "deleted")) {
+            val result = verifyAccountLifecycle("recovery", load = {
+                ApiResult.Success(signal(state, "retain_encrypted"), "fixture")
+            }, renew = { error("Restricted credentials must not be renewed") })
+            assertFalse((result as ApiResult.Success).value.allowsOrdinaryAccess())
+        }
+    }
+
+    @Test fun `failed renewal never grants account access or loops`() = runTest {
+        for (lease in listOf(TokenLease.Unavailable, TokenLease.SignedOut, TokenLease.Valid("rejected-again"))) {
+            var loads = 0
+            var renewals = 0
+            val result = verifyAccountLifecycle("expired", load = {
+                loads++
+                ApiResult.Unauthorized("Expired", "fixture")
+            }, renew = { renewals++; lease })
+            assertTrue(result is ApiResult.Failure)
+            assertEquals(1, renewals)
+            assertEquals(if (lease is TokenLease.Valid) 2 else 1, loads)
+        }
+    }
+
     @Test fun `terminal lifecycle disposition purges only terminal account states`() {
         val deleting = signal("deletion_in_progress", "purge_account_data")
         val deleted = signal("deleted", "purge_account_data")
