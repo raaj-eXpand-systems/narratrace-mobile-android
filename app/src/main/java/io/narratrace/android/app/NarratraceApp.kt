@@ -404,7 +404,7 @@ private fun ProtectedLoadingScreen() {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        LoadingMessage("Checking your protected session…")
+        LoadingMessage("Signing you in…")
     }
 }
 
@@ -658,13 +658,13 @@ private fun HostedSignInScreen(container: AppContainer, returning: Boolean) {
         )
         Text(
             if (returning) "Sign in to return to your private memories."
-            else "Create your secure account or sign in before capturing your first memory.",
+            else "Create your account or sign in before capturing your first memory.",
             Modifier.padding(top = 16.dp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyLarge,
         )
         Text(
-            "Your browser will open for secure sign-in, then bring you back here.",
+            "Your browser will open for sign-in, then bring you back here.",
             Modifier.padding(top = 12.dp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyMedium,
@@ -689,14 +689,14 @@ private fun HostedSignInScreen(container: AppContainer, returning: Boolean) {
             enabled = !starting && event !is HostedAuthEvent.Exchanging && container.isApiConfigured,
         ) {
             if (starting || event is HostedAuthEvent.Exchanging) {
-                LoadingMessage(if (starting) "Preparing secure sign-in…" else "Finishing secure sign-in…")
+                LoadingMessage(if (starting) "Signing you in…" else "Signing you in…")
             } else {
-                Text(if (event is HostedAuthEvent.AwaitingBrowser) "Start sign-in again" else "Continue to secure sign-in")
+                Text(if (event is HostedAuthEvent.AwaitingBrowser) "Start sign-in again" else "Continue to sign-in")
             }
         }
         if (event is HostedAuthEvent.AwaitingBrowser) {
             Text(
-                "Finish in the secure browser. If it was closed, start sign-in again.",
+                "Finish signing in through your browser. If it was closed, start sign-in again.",
                 Modifier.padding(top = 12.dp).semantics { liveRegion = LiveRegionMode.Polite },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -857,7 +857,7 @@ private fun LegacySignInScreen(container: AppContainer, returning: Boolean) {
             enabled = !isSigningIn && container.isApiConfigured && !requiresMfaEnrollment && inviteCode.isNotBlank(),
         ) {
             if (isSigningIn) {
-                LoadingMessage("Signing in securely…")
+                LoadingMessage("Signing you in…")
             } else {
                 Text("Continue with Google")
             }
@@ -1040,12 +1040,12 @@ private fun CustomerMoreScreen(
                         if (revokeScope == RevokeScope.AllDevices) {
                             "Every Narratrace mobile session will be revoked. Each device must sign in again."
                         } else {
-                            "This device's protected session will be revoked and removed."
+                            "You will be signed out on this device."
                         },
                     )
                     if (revoking) {
                         Text(
-                            "Signing out securely. Please wait.",
+                            "Signing out. Please wait.",
                             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1857,7 +1857,7 @@ private fun LetterComposerScreen(container: AppContainer, modifier: Modifier, dr
         Button(onClick = { saving = true; message = null; scope.launch {
             val parsed = if (later) localTime else null
             when (val created = container.lettersRepository.create(recipient, email.takeIf { !selfDelivery }, selfDelivery, subject, body, if (later) DeliveryMode.LATER else DeliveryMode.NOW, parsed, key, circleId, circleMemberEmail, deliveryZone.id)) {
-                is FeatureResult.Success -> { draft?.let { container.offlineRepository.store.remove(it.clientDraftId) }; message = if (created.value.verificationPending) "Letter saved. Recipient verification is pending; no content was shared." else "Letter saved securely."; recipient = ""; email = ""; subject = ""; body = ""; key = UUID.randomUUID().toString() }
+                is FeatureResult.Success -> { draft?.let { container.offlineRepository.store.remove(it.clientDraftId) }; message = if (created.value.verificationPending) "Letter saved. Recipient verification is pending; no content was shared." else "Letter saved."; recipient = ""; email = ""; subject = ""; body = ""; key = UUID.randomUUID().toString() }
                 is FeatureResult.Unavailable -> {
                     if (!created.offline) { deliveryContactRequired = created.code == "DELIVERY_CONTACT_REQUIRED"; message = created.message; saving = false; return@launch }
                     val saved = container.offlineRepository.store.save(io.narratrace.android.core.offline.OfflineLetterDraft(clientDraftId = draftId, recipientName = recipient.trim(), subject = subject.trim(), body = body.trim(), unlockAt = parsed?.atZone(deliveryZone)?.toInstant()?.toString(), idempotencyKey = key, recipientEmail = email.takeIf { !selfDelivery }, selfDelivery = selfDelivery, deliveryMode = if (later) "later" else "now", deliveryTimezone = deliveryZone.id, deliveryLocalDatetime = parsed?.toString(), circleId = circleId, circleMemberEmail = circleMemberEmail))
@@ -2001,7 +2001,7 @@ private fun AudioCaptureScreen(
                 val remaining = container.mediaRepository.reconcile()
                 message = uploadResultMessage(container, "Upload", remaining)
                 busy = false
-            } }, enabled = !busy) { Text("Retry protected uploads") }
+            } }, enabled = !busy) { Text("Retry uploads") }
         }
     }
 }
@@ -2130,7 +2130,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
     }
     if (confirmDelete) AlertDialog(
         onDismissRequest = { confirmDelete = false }, title = { Text("Delete this interview?") },
-        text = { Text("The transcript, protected response media, and narrative will be permanently removed.") },
+        text = { Text("The transcript, response recordings, and narrative will be permanently removed.") },
         confirmButton = { Button(onClick = { confirmDelete = false; sending = true; scope.launch {
             val deleted = container.mediaRepository.deleteInterview(summary.id); if (deleted is FeatureResult.Success) close() else processingMessage = deleted.failureMessage()
             sending = false
@@ -2175,7 +2175,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
         item { ContentReportButton(container, "interview", summary.id) }
         item { Text(niaStyledText("This interview is private. Nia’s voice is AI-generated. Review Nia’s suggestions before sharing."), color = MaterialTheme.colorScheme.onSurfaceVariant) }
         when (val loaded = result) {
-            null -> item { LoadingMessage("Loading protected interview details…") }
+            null -> item { LoadingMessage("Loading transcript…") }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify this interview.", color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Unavailable -> item { Text(niaStyledText(loaded.message), color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Success -> {
@@ -2304,7 +2304,7 @@ private fun WrittenMemoryComposer(
             enabled = !saving,
         )
         Text(
-            "Your writing remains private and is sent only when you choose Save securely.",
+            "Your writing remains private and is sent only when you choose Save.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
         )
@@ -2333,7 +2333,7 @@ private fun WrittenMemoryComposer(
             enabled = canSave,
             modifier = Modifier.fillMaxWidth().height(52.dp),
         ) {
-            if (saving) LoadingMessage("Saving securely…") else Text("Save securely")
+            if (saving) LoadingMessage("Saving…") else Text("Save")
         }
         if (outcome is WrittenMemoryResult.Success) {
             Text("Memory preserved privately in Narratrace.", color = MaterialTheme.colorScheme.primary)
@@ -2817,7 +2817,7 @@ private fun CustomerMediaDetailScreen(container: AppContainer, mediaId: String, 
         dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
     )
     when (val loaded = result) {
-        null -> LoadingSurface(modifier, "Media", "Opening protected media…")
+        null -> LoadingSurface(modifier, "Media", "Opening media…")
         FeatureResult.AuthenticationRequired -> FailureSurface(modifier, "Sign in again to verify this media.")
         is FeatureResult.Unavailable -> RetrySurface(modifier, "Media unavailable", loaded.message, loaded.supportReference) { result = null; loadRevision++ }
         is FeatureResult.Success -> {
@@ -2831,7 +2831,7 @@ private fun CustomerMediaDetailScreen(container: AppContainer, mediaId: String, 
                         bitmap != null -> Image(bitmap.asImageBitmap(), "Preserved photo", Modifier.fillMaxWidth())
                         photoLoading -> LoadingMessage("Opening your photo…")
                         else -> {
-                            Text("Photo preview is unavailable. Try again to load the protected image.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Photo preview is unavailable. Try again to load the image.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Button({ loadRevision++ }) { Text("Retry photo") }
                         }
                     }
@@ -2913,7 +2913,7 @@ private fun ArtifactDeliveryComposer(container: AppContainer, uploadId: String, 
         Button(onClick = { busy = true; scope.launch {
             val parsed = if (later) local else null
             when (val made = container.lettersRepository.createArtifactDelivery(uploadId, name, email.takeIf { !self }, self, if (later) DeliveryMode.LATER else DeliveryMode.NOW, parsed, deliveryZone.id)) {
-                is FeatureResult.Success -> message = if (self) "Delivery scheduled securely." else "Delivery created. Recipient verification is required before access."
+                is FeatureResult.Success -> message = if (self) "Delivery scheduled." else "Delivery created. Recipient verification is required before access."
                 is FeatureResult.Unavailable -> { message = made.message; deliveryContactRequired = made.code == "DELIVERY_CONTACT_REQUIRED" }
                 FeatureResult.AuthenticationRequired -> message = "Sign in again before creating delivery."
             }; busy = false
