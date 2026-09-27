@@ -1854,20 +1854,27 @@ private fun LetterComposerScreen(container: AppContainer, modifier: Modifier, dr
         if (later) DeliverySchedulePicker(localTime, deliveryZone,
             onChange = { localTime = it; key = UUID.randomUUID().toString() },
             onZoneChange = { localTime = localTime.atZone(deliveryZone).withZoneSameInstant(it).toLocalDateTime(); deliveryZone = it; key = UUID.randomUUID().toString() })
-        Button(onClick = { saving = true; message = null; scope.launch {
+        Button(onClick = {
+            val owner = container.sessionManager.captureOperationLease() ?: return@Button
             val parsed = if (later) localTime else null
-            when (val created = container.lettersRepository.create(recipient, email.takeIf { !selfDelivery }, selfDelivery, subject, body, if (later) DeliveryMode.LATER else DeliveryMode.NOW, parsed, key, circleId, circleMemberEmail, deliveryZone.id)) {
+            val pending = io.narratrace.android.core.offline.OfflineLetterDraft(clientDraftId = draftId, recipientName = recipient.trim(), subject = subject.trim(), body = body.trim(), unlockAt = parsed?.atZone(deliveryZone)?.toInstant()?.toString(), idempotencyKey = key, recipientEmail = email.takeIf { !selfDelivery }, selfDelivery = selfDelivery, deliveryMode = if (later) "later" else "now", deliveryTimezone = deliveryZone.id, deliveryLocalDatetime = parsed?.toString(), circleId = circleId, circleMemberEmail = circleMemberEmail, ownerAccountId = owner.accountId)
+            saving = true; message = null; scope.launch {
+            val created = container.lettersRepository.create(pending.recipientName, pending.recipientEmail, pending.selfDelivery == true, pending.subject, pending.body, if (pending.deliveryMode == "later") DeliveryMode.LATER else DeliveryMode.NOW, parsed, pending.idempotencyKey, pending.circleId, pending.circleMemberEmail, pending.deliveryTimezone!!, operationLease = owner)
+            if (!container.sessionManager.isCurrent(owner)) return@launch
+            container.sessionManager.withCurrent(owner) {
+            when (created) {
                 is FeatureResult.Success -> { draft?.let { container.offlineRepository.store.remove(it.clientDraftId) }; message = if (created.value.verificationPending) "Letter saved. Recipient verification is pending; no content was shared." else "Letter saved."; recipient = ""; email = ""; subject = ""; body = ""; key = UUID.randomUUID().toString() }
                 is FeatureResult.Unavailable -> {
-                    if (!created.offline) { deliveryContactRequired = created.code == "DELIVERY_CONTACT_REQUIRED"; message = created.message; saving = false; return@launch }
-                    val saved = container.offlineRepository.store.save(io.narratrace.android.core.offline.OfflineLetterDraft(clientDraftId = draftId, recipientName = recipient.trim(), subject = subject.trim(), body = body.trim(), unlockAt = parsed?.atZone(deliveryZone)?.toInstant()?.toString(), idempotencyKey = key, recipientEmail = email.takeIf { !selfDelivery }, selfDelivery = selfDelivery, deliveryMode = if (later) "later" else "now", deliveryTimezone = deliveryZone.id, deliveryLocalDatetime = parsed?.toString(), circleId = circleId, circleMemberEmail = circleMemberEmail))
+                    if (!created.offline) { deliveryContactRequired = created.code == "DELIVERY_CONTACT_REQUIRED"; message = created.message; saving = false; return@withCurrent }
+                    val saved = container.offlineRepository.store.save(pending)
                     message = if (saved) "Encrypted draft saved on this device. Open this draft to confirm delivery when connected." else created.message
                 }
                 FeatureResult.AuthenticationRequired -> {
-                    val saved = container.offlineRepository.store.save(io.narratrace.android.core.offline.OfflineLetterDraft(clientDraftId = draftId, recipientName = recipient.trim(), subject = subject.trim(), body = body.trim(), unlockAt = parsed?.atZone(deliveryZone)?.toInstant()?.toString(), idempotencyKey = key, recipientEmail = email.takeIf { !selfDelivery }, selfDelivery = selfDelivery, deliveryMode = if (later) "later" else "now", deliveryTimezone = deliveryZone.id, deliveryLocalDatetime = parsed?.toString(), circleId = circleId, circleMemberEmail = circleMemberEmail))
+                    val saved = container.offlineRepository.store.save(pending)
                     message = if (saved) "Encrypted draft saved on this device. Sign in again and open the draft to confirm delivery." else "Sign in again before saving this Letter."
                 }
             }; saving = false
+            }
         } }, enabled = !saving && recipient.trim().isNotEmpty() && subject.trim().isNotEmpty() && body.trim().isNotEmpty() && (selfDelivery || (circleId != null && circleDetail is FeatureResult.Success) || (circleId == null && email.trim().isNotEmpty())), modifier = Modifier.fillMaxWidth()) { Text("Save Letter") }
         if (deliveryContactRequired) TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account?client=android#delivery-contact-email".toUri())) }) { Text("Verify delivery contact") }
         message?.let { Text(niaStyledText(it), color = if (it.contains("saved")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }

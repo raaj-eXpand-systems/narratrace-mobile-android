@@ -59,6 +59,22 @@ class SessionManager(
     private val _state = MutableStateFlow<AuthState>(AuthState.Restoring)
     val state: StateFlow<AuthState> = _state.asStateFlow()
 
+    /** Immutable owner and generation; ordinary token rotation does not invalidate it. */
+    data class AccountOperationLease internal constructor(val accountId: String, internal val generation: Long)
+
+    @Synchronized
+    fun captureOperationLease(): AccountOperationLease? =
+        (_state.value as? AuthState.Authenticated)?.session?.let { AccountOperationLease(it.accountId, sessionGeneration) }
+
+    @Synchronized
+    fun isCurrent(lease: AccountOperationLease): Boolean =
+        sessionGeneration == lease.generation && (_state.value as? AuthState.Authenticated)?.session?.accountId == lease.accountId
+
+    /** Serialize the final local write with sign-out/adoption, not with network work. */
+    @Synchronized
+    fun <T> withCurrent(lease: AccountOperationLease, operation: () -> T): T? =
+        if (isCurrent(lease)) operation() else null
+
     /**
      * Restore a session from encrypted storage.
      *

@@ -59,7 +59,7 @@ class LettersRepository(
 
     suspend fun create(
         recipientName: String, recipientEmail: String?, selfDelivery: Boolean, subject: String, body: String,
-        mode: DeliveryMode, localDateTime: LocalDateTime?, idempotencyKey: String, circleId: String? = null, circleMemberEmail: String? = null, deliveryTimezone: String = ZoneId.systemDefault().id,
+        mode: DeliveryMode, localDateTime: LocalDateTime?, idempotencyKey: String, circleId: String? = null, circleMemberEmail: String? = null, deliveryTimezone: String = ZoneId.systemDefault().id, operationLease: SessionManager.AccountOperationLease? = sessions.captureOperationLease(),
     ): FeatureResult<LetterCreation> {
         val name = recipientName.trim(); val title = subject.trim(); val content = body.trim()
         if (name.isEmpty() || name.length > 100 || title.isEmpty() || title.length > 200 || content.isEmpty() || content.length > 10_000) {
@@ -76,7 +76,7 @@ class LettersRepository(
         if (validation is DeliveryValidationResult.Invalid) return FeatureResult.Unavailable(
             if (validation.reason == DeliveryValidationResult.Reason.DELIVERY_TIME_NOT_FUTURE) "Choose a future delivery date and time." else "Check the recipient and delivery choices.",
         )
-        return call { token -> api.create(
+        return call(operationLease = operationLease) { token -> api.create(
             name, recipientEmail?.trim()?.lowercase(), selfDelivery, title, content,
             if (mode == DeliveryMode.NOW) "now" else "later", instant?.toString(),
             if (mode == DeliveryMode.LATER) zone.id else null,
@@ -87,16 +87,20 @@ class LettersRepository(
 
     private suspend fun <T> call(
         destructive: Boolean = false,
+        operationLease: SessionManager.AccountOperationLease? = sessions.captureOperationLease(),
         block: suspend (String) -> ApiResult<T>,
     ): FeatureResult<T> {
+        if (operationLease == null || !sessions.isCurrent(operationLease)) return FeatureResult.AuthenticationRequired
         val lease = sessions.accessToken()
-        if (lease !is TokenLease.Valid) return FeatureResult.AuthenticationRequired
+        if (!sessions.isCurrent(operationLease) || lease !is TokenLease.Valid) return FeatureResult.AuthenticationRequired
         var result = block(lease.accessToken)
+        if (!sessions.isCurrent(operationLease)) return FeatureResult.AuthenticationRequired
         if (result is ApiResult.Unauthorized) {
             val recovered = sessions.recoverFromUnauthorized(lease.accessToken)
-            if (recovered !is TokenLease.Valid) return FeatureResult.AuthenticationRequired
+            if (!sessions.isCurrent(operationLease) || recovered !is TokenLease.Valid) return FeatureResult.AuthenticationRequired
             result = block(recovered.accessToken)
         }
+        if (!sessions.isCurrent(operationLease)) return FeatureResult.AuthenticationRequired
         if (destructive) return destructiveFeatureResult(result, sessions::signOut)
         return when (result) {
             is ApiResult.Success -> FeatureResult.Success(result.value)
