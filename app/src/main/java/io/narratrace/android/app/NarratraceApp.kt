@@ -1437,6 +1437,7 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
 
 @Composable
 private fun FamilySharingScreenContent(container: AppContainer, modifier: Modifier, close: () -> Unit) {
+    var sortByName by remember { mutableStateOf(false) }
     var family by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.family.FamilySummary>?>(null) }
     var circles by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.family.CircleList>?>(null) }
     var refresh by remember { mutableStateOf(0) }; var selectedCircle by remember { mutableStateOf<io.narratrace.android.core.family.Circle?>(null) }
@@ -1458,10 +1459,15 @@ private fun FamilySharingScreenContent(container: AppContainer, modifier: Modifi
             } else {
                 val own = loaded.value.family
                 item { Text(own.name ?: "Your family", style = MaterialTheme.typography.titleLarge); Text("Your role: ${own.myRole}", style = MaterialTheme.typography.bodySmall) }
-                items(loaded.value.members, key = { it.id }) { member -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text(if (member.isCurrentUser) "You" else member.email, style = MaterialTheme.typography.titleMedium); Text("${member.role} · ${member.status}")
+                item { Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Sort people")
+                    TextButton(onClick = { sortByName = false }) { Text(if (!sortByName) "Status ✓" else "Status") }
+                    TextButton(onClick = { sortByName = true }) { Text(if (sortByName) "Name ✓" else "Name") }
+                } }
+                items(loaded.value.sortedMembers(sortByName), key = { it.id }) { member -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text(if (member.isCurrentUser) "You" else (member.displayName ?: member.email), style = MaterialTheme.typography.titleMedium); Text("${member.role.replaceFirstChar(Char::uppercase)} · ${member.status.replaceFirstChar(Char::uppercase)}")
                     if (!member.isCurrentUser && member.status in setOf("active", "pending")) BlockPersonButton(container, io.narratrace.android.core.family.BlockSource("family", own.id, member.email), member.email)
-                    if (own.myRole == "owner" && !member.isCurrentUser) { Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (own.myRole == "owner" && !member.isCurrentUser && member.status in setOf("active", "pending")) { Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         TextButton(onClick = { scope.launch { val changed = container.familyRepository.update(member.email, if (member.role == "viewer") "editor" else "viewer"); message = changed.failureMessage(); if (changed is FeatureResult.Success) refresh++ } }) { Text(if (member.role == "viewer") "Make editor" else "Make viewer") }
                         TextButton(onClick = { scope.launch { val changed = container.familyRepository.remove(member.email); message = changed.failureMessage(); if (changed is FeatureResult.Success) refresh++ } }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
                     } }

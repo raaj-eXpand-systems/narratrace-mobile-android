@@ -40,7 +40,7 @@ internal fun BlockPersonButton(container: AppContainer, source: BlockSource, lab
                 is FeatureResult.Unavailable -> result.message
             }
             busy = false; confirming = false
-        } }) { Text(if (busy) "Blocking…" else "Block person") } },
+        } }) { Text(if (busy) "Blocking…" else "Block") } },
         dismissButton = { TextButton(enabled = !busy, onClick = { confirming = false }) { Text("Cancel") } },
     )
 }

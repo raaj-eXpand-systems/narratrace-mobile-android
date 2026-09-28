@@ -6,6 +6,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FamilyContractTest {
+    @Test fun `blocked members sort last by status and alphabetically by name`() {
+        val active = FamilyMember("a", "a@example.invalid", "owner", "active", true, "Maya")
+        val pending = FamilyMember("p", "p@example.invalid", "viewer", "pending", false, "Zoe")
+        val blocked = FamilyMember("b", "b@example.invalid", "viewer", "blocked", false, "Alex")
+        val summary = FamilySummary(members = listOf(pending, active), blockedMembers = listOf(blocked))
+        assertEquals(listOf("a", "p", "b"), summary.sortedMembers(false).map { it.id })
+        assertEquals(listOf("b", "a", "p"), summary.sortedMembers(true).map { it.id })
+        assertEquals(2, summary.members.size)
+    }
+
     @Test fun `family roles and pending membership decode`() {
         val summary = NarratraceJson.decodeFromString<FamilySummary>("""{
           "family":{"id":"f-1","name":"Sharma family","myRole":"owner"},
