@@ -1465,7 +1465,12 @@ private fun FamilySharingScreenContent(container: AppContainer, modifier: Modifi
                     TextButton(onClick = { sortByName = true }) { Text(if (sortByName) "Name ✓" else "Name") }
                 } }
                 items(loaded.value.sortedMembers(sortByName), key = { it.id }) { member -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text(if (member.isCurrentUser) "You" else (member.displayName ?: member.email), style = MaterialTheme.typography.titleMedium); Text("${member.role.replaceFirstChar(Char::uppercase)} · ${member.status.replaceFirstChar(Char::uppercase)}")
+                    Text(if (member.isCurrentUser) "You" else (member.displayName ?: member.email), style = MaterialTheme.typography.titleMedium); Text(androidx.compose.ui.text.buildAnnotatedString {
+                        append("${member.role.replaceFirstChar(Char::uppercase)} · ")
+                        pushStyle(androidx.compose.ui.text.SpanStyle(color = if (member.status == "blocked") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface))
+                        append(member.status.replaceFirstChar(Char::uppercase))
+                        pop()
+                    })
                     if (!member.isCurrentUser && member.status in setOf("active", "pending")) BlockPersonButton(container, io.narratrace.android.core.family.BlockSource("family", own.id, member.email), member.email)
                     if (own.myRole == "owner" && !member.isCurrentUser && member.status in setOf("active", "pending")) { Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         TextButton(onClick = { scope.launch { val changed = container.familyRepository.update(member.email, if (member.role == "viewer") "editor" else "viewer"); message = changed.failureMessage(); if (changed is FeatureResult.Success) refresh++ } }) { Text(if (member.role == "viewer") "Make editor" else "Make viewer") }
