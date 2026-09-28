@@ -58,7 +58,7 @@ internal fun BlockedPeopleScreen(container: AppContainer, modifier: Modifier, cl
     BackHandler(onBack = close)
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { TextButton(onClick = close) { Text("Back to preferences") }; Text("Blocked people", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
-        item { Text("Only people you blocked appear here. Account references protect their private contact information. Unblocking does not restore memberships, sharing, or deliveries.") }
+        item { Text("Manage the people you’ve blocked. Unblocking does not restore their previous access or sharing.") }
         when (val loaded = result) {
             null -> item { Text("Loading blocked people…"); CircularProgressIndicator(Modifier.semantics { contentDescription = "Loading blocked people" }) }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to view blocked people.", color = MaterialTheme.colorScheme.error) }
@@ -66,8 +66,10 @@ internal fun BlockedPeopleScreen(container: AppContainer, modifier: Modifier, cl
             is FeatureResult.Success -> {
                 if (loaded.value.blocks.isEmpty()) item { Text("No blocked people") }
                 items(loaded.value.blocks, key = { it.accountId }) { block -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
-                    Text("Account reference: ${block.accountId}", style = MaterialTheme.typography.bodySmall)
-                    Text("Blocked: ${block.createdAt}", style = MaterialTheme.typography.bodySmall)
+                    Text(block.label, style = MaterialTheme.typography.titleMedium)
+                    if (block.displayName != null && block.email != null) Text(block.email, style = MaterialTheme.typography.bodySmall)
+                    Text("Blocked", color = MaterialTheme.colorScheme.error)
+                    Text(block.createdAt, style = MaterialTheme.typography.bodySmall)
                     TextButton(enabled = !busy, onClick = { pending = block; error = null }) { Text("Unblock") }
                 } } }
             }
@@ -75,7 +77,7 @@ internal fun BlockedPeopleScreen(container: AppContainer, modifier: Modifier, cl
         error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
     }
     pending?.let { block -> AlertDialog(
-        onDismissRequest = { if (!busy) pending = null }, title = { Text("Unblock this person?") },
+        onDismissRequest = { if (!busy) pending = null }, title = { Text("Unblock ${block.label}?") },
         text = { Text("Memberships, sharing, and deliveries will not be restored. You may choose to reconnect separately.") },
         confirmButton = { Button(enabled = !busy, onClick = { busy = true; scope.launch {
             error = when (val changed = container.userBlocksRepository.unblock(block.accountId)) {
@@ -87,4 +89,30 @@ internal fun BlockedPeopleScreen(container: AppContainer, modifier: Modifier, cl
         } }) { Text(if (busy) "Unblocking…" else "Unblock") } },
         dismissButton = { TextButton(enabled = !busy, onClick = { pending = null }) { Text("Cancel") } },
     ) }
+}
+
+@Composable
+internal fun UnblockPersonButton(container: AppContainer, accountId: String, label: String) {
+    var confirming by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    TextButton(onClick = { confirming = true; error = null }, enabled = !busy,
+        modifier = Modifier.semantics { contentDescription = "Unblock $label" }) { Text(if (busy) "Unblocking…" else "Unblock") }
+    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    if (confirming) AlertDialog(
+        onDismissRequest = { if (!busy) confirming = false },
+        title = { Text("Unblock $label?") },
+        text = { Text("Memberships, sharing, and deliveries will not be restored. You can invite this person again afterward.") },
+        confirmButton = { Button(enabled = !busy, onClick = { busy = true; scope.launch {
+            error = when (val result = container.userBlocksRepository.unblock(accountId)) {
+                is FeatureResult.Success -> { Toast.makeText(context, "Person unblocked. Previous sharing was not restored.", Toast.LENGTH_LONG).show(); null }
+                FeatureResult.AuthenticationRequired -> "Sign in again to unblock this person."
+                is FeatureResult.Unavailable -> result.message
+            }
+            busy = false; confirming = false
+        } }) { Text(if (busy) "Unblocking…" else "Unblock") } },
+        dismissButton = { TextButton(enabled = !busy, onClick = { confirming = false }) { Text("Cancel") } },
+    )
 }

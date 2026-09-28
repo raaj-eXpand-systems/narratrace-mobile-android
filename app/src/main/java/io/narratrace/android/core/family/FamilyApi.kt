@@ -9,7 +9,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.serializer
 
 @Serializable data class Family(val id: String, val name: String? = null, val myRole: String)
-@Serializable data class FamilyMember(val id: String, val email: String, val role: String, val status: String, val isCurrentUser: Boolean, val displayName: String? = null)
+@Serializable data class FamilyMember(val id: String, val email: String, val role: String, val status: String, val isCurrentUser: Boolean, val displayName: String? = null, val accountId: String? = null)
 @Serializable data class FamilySummary(val family: Family? = null, val members: List<FamilyMember>, val blockedMembers: List<FamilyMember> = emptyList()) {
     fun sortedMembers(byName: Boolean): List<FamilyMember> = (members + blockedMembers).sortedWith(
         compareBy<FamilyMember> { if (byName) 0 else when (it.status) { "active" -> 0; "pending" -> 1; "blocked" -> 3; else -> 2 } }

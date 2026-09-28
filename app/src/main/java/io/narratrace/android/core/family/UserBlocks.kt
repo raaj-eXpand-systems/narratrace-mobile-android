@@ -12,7 +12,9 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.serializer
 
 @Serializable data class BlockSource(val kind: String, val id: String, val email: String? = null, val memberId: String? = null, val target: String? = null)
-@Serializable data class UserBlock(val accountId: String, val createdAt: String)
+@Serializable data class UserBlock(val accountId: String, val createdAt: String, val displayName: String? = null, val email: String? = null) {
+    val label: String get() = displayName ?: email ?: "Former contact (details unavailable)"
+}
 @Serializable data class UserBlockList(val blocks: List<UserBlock>)
 @Serializable data class BlockMutation(val blocked: Boolean, val changed: Boolean)
 @Serializable internal data class BlockInput(val source: BlockSource)

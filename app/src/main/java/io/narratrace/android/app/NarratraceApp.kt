@@ -1471,6 +1471,7 @@ private fun FamilySharingScreenContent(container: AppContainer, modifier: Modifi
                         append(member.status.replaceFirstChar(Char::uppercase))
                         pop()
                     })
+                    if (member.status == "blocked" && member.accountId != null) UnblockPersonButton(container, member.accountId, member.displayName ?: member.email)
                     if (!member.isCurrentUser && member.status in setOf("active", "pending")) BlockPersonButton(container, io.narratrace.android.core.family.BlockSource("family", own.id, member.email), member.email)
                     if (own.myRole == "owner" && !member.isCurrentUser && member.status in setOf("active", "pending")) { Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         TextButton(onClick = { scope.launch { val changed = container.familyRepository.update(member.email, if (member.role == "viewer") "editor" else "viewer"); message = changed.failureMessage(); if (changed is FeatureResult.Success) refresh++ } }) { Text(if (member.role == "viewer") "Make editor" else "Make viewer") }

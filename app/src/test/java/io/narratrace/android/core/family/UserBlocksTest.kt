@@ -12,6 +12,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class UserBlocksTest {
+    @Test fun `known labels never use the internal account id`() {
+        val named = NarratraceJson.decodeFromString<UserBlock>("""{"accountId":"private-id","createdAt":"now","displayName":"Alex","email":"known@example.invalid"}""")
+        assertEquals("Alex", named.label)
+        assertEquals("known@example.invalid", named.email)
+        val legacy = NarratraceJson.decodeFromString<UserBlock>("""{"accountId":"private-id","createdAt":"now"}""")
+        assertEquals("Former contact (details unavailable)", legacy.label)
+        assertFalse(legacy.label.contains(legacy.accountId))
+    }
+
     @Test fun `block and unblock send contextual JSON and bearer with no cache`() = runTest {
         val requests = mutableListOf<Request>()
         val client = NarratraceApiClient(baseUrl = "https://narratrace.example", httpClient = OkHttpClient.Builder().addInterceptor { chain ->
