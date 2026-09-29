@@ -33,3 +33,23 @@ Google Play live check: existing production version 3 is **In review**, not appr
 - Debug lint/build passed; diff whitespace check passed. Logs: `/tmp/narratrace-android-parity-frozen-tests.log`; unit and connected-test XML under `app/build/`.
 - Security/code quality review: existing HTTPS/redirect rules and protected-store encryption retained; new mutation proofs only attach to explicitly named deletion operations; credentials/codes never persist in UI preferences or release notes. Async contact/report/Letter/media actions retain operation-generation checks. Private drafts stay owner-scoped, incomplete delivery never auto-sends, and report holds retain server enforcement. No new permissions, libraries, remote executable logic, database objects or privileged roles.
 - UI automation access to the emulator window is unavailable through the desktop tool. Visual/manual live-account acceptance is not claimed. The approved emulator instrumentation checks and fixture contracts are the evidence for this submission; actual Android hardware/Bluetooth remains outstanding as agreed.
+
+### Signed artifact evidence
+
+Built from clean, pushed `main` commit `9d85bc8` using existing `narratrace/prd_narratrace-prod` Doppler configuration. `verifyStoreRelease`, release bundle/APK assembly and release lint passed (`/tmp/narratrace-android-build4-release.log`).
+
+- Package `io.narratrace.android`, version `1.0.0` / code `4`, min SDK 26, target SDK 36.
+- APK SHA-256: `2cd3856440a8f554a2a0317482523d9fab6cb5ddb2a6feedce42d29beaa84892`.
+- AAB SHA-256: `49c743b92f18e8b2b826f4f102f17ee264e3459c218f6f2eeeace5311e09bd04` (17,433,732 bytes).
+- Existing upload certificate unchanged: SHA-256 `348551e1727ecdcf78e37a774fb2c3f76f795143a4d210f36bf839c038c14c08`. APK verification succeeds; AAB JAR signature verifies. Standard self-signed Android upload-key warnings are expected, not a changed certificate.
+- Zero `.md`, `.mdx`, `.markdown` or `.sql` files in both signed artifacts.
+- Launcher source exactly equals submitted iOS icon, SHA-256 `b10fd31695a5db11e08ce2f3b6eb5b076e9cacc4ab4306b76a89cae68e231d31`.
+- Google Play upload initiated in the existing production track; final acceptance/submission readback is still pending below.
+
+Play accepted build 4 and attached its ReTrace mapping file. Release validation reports zero blocking errors, one native debug-symbol warning (unchanged dependency-symbol limitation), and zero reductions in supported devices. The new release is saved under production release ID 2, ready for review. Managed publishing remains on. The packaged APK launcher decodes pixel-identically to the approved 1024×1024 source after Android's lossless resource optimization. Release lint has zero errors (21 warnings, 17 hints); debug lint has zero errors (29 warnings, 17 hints).
+
+### Store metadata and review handoff
+
+Saved the approved red Na/green icon in the default listing; Chrome visibly confirms the top-right Narratrace app icon now uses it. Corrected the listing's Google-only sign-in wording to “Sign in with your Narratrace account.” Updated existing reviewer guidance to describe Family Essential access, no purchase/trial requirement, the plan's video limitation, blocking/unblocking, and Letter reporting/delivery contact. Existing credentials were preserved.
+
+Publishing overview confirms three pending changes: production build 4, full description and app icon, with updated sign-in guidance alongside them. Selecting Submit displays “Do you want to restart your review?” and states that sending cancels the review underway since September 23 and adds waiting time. Automatic approval review rejected the restart click pending explicit owner approval of that consequence. The confirmation is pending; build 4 is not yet submitted. Build 3 remains in review, managed publishing remains on, and no public launch occurred.
