@@ -66,6 +66,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -141,6 +142,7 @@ import io.narratrace.android.core.media.protectedUploadAttention
 import io.narratrace.android.core.letters.LetterSummary
 import io.narratrace.android.core.letters.letterDeliveryStatus
 import io.narratrace.android.core.letters.statusLabel
+import io.narratrace.android.core.letters.canModify
 import io.narratrace.android.core.letters.canDisplayContent
 import io.narratrace.android.core.delivery.DeliveryMode
 import io.narratrace.android.core.support.FeedbackScreenshot
@@ -278,6 +280,7 @@ private fun ProductionCaptureTargetCard(
 
 @Composable
 fun NarratraceApp(container: AppContainer) {
+    DeletionVerificationDialog(container)
     var onboarded by remember { mutableStateOf(container.onboardingStore.completed()) }
     if (!onboarded) {
         OnboardingScreen { newUser -> if (container.onboardingStore.complete(newUser)) onboarded = true }
@@ -527,6 +530,7 @@ private fun RestrictedLifecycleScreen(
         TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, PRIVACY_POLICY_URL.toUri())) }, Modifier.fillMaxWidth()) { Text("Privacy and data-rights information") }
         TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, COOKIE_POLICY_URL.toUri())) }, Modifier.fillMaxWidth()) { Text("Cookie Policy") }
         TextButton(retry, Modifier.fillMaxWidth()) { Text("Check account status again") }
+        TextButton({ scope.launch { container.sessionManager.signOut() } }, Modifier.fillMaxWidth(), enabled = !reopening) { Text("Sign out") }
     }
 }
 
@@ -997,6 +1001,7 @@ private fun CustomerMoreScreen(
     var revocationFailure by remember { mutableStateOf<RevocationResult.Unavailable?>(null) }
     var deliveries by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.letters.ArtifactDeliveryList>?>(null) }
     var revokeDeliveryId by remember { mutableStateOf<String?>(null) }
+    var deliveryEmailOpen by remember { mutableStateOf(false) }
     var familyOpen by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
     var feedbackOpen by remember { mutableStateOf(false) }
@@ -1011,6 +1016,7 @@ private fun CustomerMoreScreen(
         "Letters" -> { BackHandler(onBack = closeArchive); LettersScreen(container, modifier, closeArchive); return }
     }
     if (welcomeOpen) { OnboardingScreen(modifier, replay = true) { welcomeOpen = false }; return }
+    if (deliveryEmailOpen) { DeliveryContactScreen(container, modifier) { deliveryEmailOpen = false; refreshKey++ }; return }
     if (familyOpen) { FamilySharingScreen(container, modifier) { familyOpen = false }; return }
     if (settingsOpen) { ProfileSettingsScreen(container, modifier) { settingsOpen = false }; return }
     if (feedbackOpen) { FeedbackSupportScreen(container, modifier) { feedbackOpen = false }; return }
@@ -1125,11 +1131,13 @@ private fun CustomerMoreScreen(
                             Text("Your guided interview is complete. Additional capture choices are not available in this app.", style = MaterialTheme.typography.bodySmall)
                         }
                         AccountAllowances(current.value)
+                        AccountCapabilitiesSummary(current.value)
                         if (current.value.deliveryContact?.status == "verified") {
                             Text("Delivery contact verified: ${current.value.deliveryContact.email}", style = MaterialTheme.typography.bodySmall)
                         } else {
-                            Text("Verify a durable email address on the secure account website before scheduling a future delivery.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            Text("Verify your delivery email before scheduling a future delivery.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                         }
+                        TextButton({ deliveryEmailOpen = true }) { Text("Review delivery email") }
                     }
                 }
             }
@@ -1341,7 +1349,8 @@ private fun String.platformLabel(): String = when (lowercase()) {
 }
 
 @Composable
-private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, close: () -> Unit) {
+private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, focusInsights: Boolean = false, close: () -> Unit) {
+    val profileList = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = if (focusInsights) 10 else 0)
     var blocksOpen by remember { mutableStateOf(false) }
     if (blocksOpen) { BlockedPeopleScreen(container, modifier) { blocksOpen = false }; return }
     val context = LocalContext.current; val scope = rememberCoroutineScope()
@@ -1364,7 +1373,7 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
     val latestBirthYear = java.time.Year.now().value - 5
     val birthYearValid = birthYear.isEmpty() || (birthYear.length == 4 && birthYear.toIntOrNull()?.let { it in 1900..latestBirthYear } == true)
     BackHandler(onBack = close)
-    LazyColumn(modifier.fillMaxSize().imePadding(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(modifier.fillMaxSize().imePadding(), state = profileList, contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to account") }; Text("Profile and preferences", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) } }
         item { OutlinedButton(onClick = { blocksOpen = true }, modifier = Modifier.fillMaxWidth()) { Text("Blocked people") } }
         item { Text("Support and feedback", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium) }
@@ -1375,7 +1384,7 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, c
         item { Button(onClick = { busy = true; scope.launch { val saved = container.settingsRepository.updateProfile(name, birthYear.toIntOrNull(), language); message = if (saved is FeatureResult.Success) "Profile saved." else (saved as? FeatureResult.Unavailable)?.message; busy = false } }, enabled = !busy && name.trim().isNotEmpty() && birthYearValid, modifier = Modifier.fillMaxWidth()) { Text("Save profile") } }
         item { Text("App appearance", style = MaterialTheme.typography.titleLarge) }
         item { ThemeChoices(container.appearanceStore.load()) { appearance ->
-            if (container.appearanceStore.save(appearance)) (context as? Activity)?.recreate()
+            container.appearanceStore.save(appearance)
         } }
         item { Text(niaStyledText(MEDIA_INSIGHTS_HEADING), Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge) }
         item { Text("Photo and video insights are optional and off by default. Review each disclosure before allowing that use. Turning either off keeps your media usable.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -1803,7 +1812,7 @@ private fun LettersScreenContent(container: AppContainer, modifier: Modifier, cl
         item { Text("Letters use the same private, revocable delivery workflow as other artifacts. External recipients confirm or decline without seeing Letter content; Narratrace requires confirmation again at delivery when the prior confirmation is more than 12 months old.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { Button(onClick = { draft = null; composing = true }, Modifier.fillMaxWidth()) { Text("Write a Letter") } }
         items(drafts, key = { "draft:${it.clientDraftId}" }) { saved ->
-            OutlinedButton(onClick = { draft = saved; composing = true }, Modifier.fillMaxWidth()) { Text("Review saved draft: ${saved.subject}") }
+            OutlinedButton(onClick = { draft = saved; composing = true }, Modifier.fillMaxWidth()) { Text("Review saved draft: ${saved.subject.ifBlank { "Untitled Letter" }}") }
         }
         when (val loaded = result) {
             null -> item { LoadingMessage("Loading private Letters…") }
@@ -1821,7 +1830,7 @@ private fun LettersScreenContent(container: AppContainer, modifier: Modifier, cl
 }
 
 @Composable
-private fun LetterComposerScreen(container: AppContainer, modifier: Modifier, draft: io.narratrace.android.core.offline.OfflineLetterDraft? = null, close: () -> Unit) {
+private fun LetterComposerScreen(container: AppContainer, modifier: Modifier, draft: io.narratrace.android.core.offline.OfflineLetterDraft? = null, initialPersonId: String? = null, initialRecipientName: String = "", close: () -> Unit) {
     var deliveryZone by remember { mutableStateOf(runCatching { java.time.ZoneId.of(draft?.deliveryTimezone ?: java.time.ZoneId.systemDefault().id) }.getOrDefault(java.time.ZoneId.systemDefault())) }
     var circleId by remember { mutableStateOf(draft?.circleId) }
     var circleMemberEmail by remember { mutableStateOf(draft?.circleMemberEmail) }
@@ -1829,14 +1838,14 @@ private fun LetterComposerScreen(container: AppContainer, modifier: Modifier, dr
     var circleDetail by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.family.CircleDetail>?>(null) }
     LaunchedEffect(Unit) { circles = container.familyRepository.circles() }
     LaunchedEffect(circleId) { circleDetail = null; circleId?.let { circleDetail = container.familyRepository.circle(it) } }
-    var recipient by remember { mutableStateOf(draft?.recipientName.orEmpty()) }; var email by remember { mutableStateOf(draft?.recipientEmail.orEmpty()) }
+    var recipient by remember { mutableStateOf(draft?.recipientName ?: initialRecipientName) }; var email by remember { mutableStateOf(draft?.recipientEmail.orEmpty()) }
     var subject by remember { mutableStateOf(draft?.subject.orEmpty()) }; var body by remember { mutableStateOf(draft?.body.orEmpty()) }
     var selfDelivery by remember { mutableStateOf(draft?.selfDelivery == true) }; var later by remember { mutableStateOf(draft?.deliveryMode == "later" || draft?.unlockAt != null) }
     var localTime by remember { mutableStateOf(draft?.unlockAt?.let { runCatching { java.time.Instant.parse(it).atZone(deliveryZone).toLocalDateTime() }.getOrNull() } ?: LocalDateTime.now(deliveryZone).plusDays(1).withHour(9).withMinute(0).withSecond(0).withNano(0)) }; var saving by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }; var key by remember { mutableStateOf(draft?.idempotencyKey ?: UUID.randomUUID().toString()) }
     val draftId = remember { draft?.clientDraftId ?: UUID.randomUUID().toString() }
     var deliveryContactRequired by remember { mutableStateOf(false) }
-    val context = LocalContext.current
+    var deliveryEmailOpen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     BackHandler(enabled = !saving, onBack = close)
     Column(modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1866,18 +1875,34 @@ private fun LetterComposerScreen(container: AppContainer, modifier: Modifier, dr
         if (later) DeliverySchedulePicker(localTime, deliveryZone,
             onChange = { localTime = it; key = UUID.randomUUID().toString() },
             onZoneChange = { localTime = localTime.atZone(deliveryZone).withZoneSameInstant(it).toLocalDateTime(); deliveryZone = it; key = UUID.randomUUID().toString() })
+        OutlinedButton(onClick = {
+            val owner = container.sessionManager.captureOperationLease() ?: return@OutlinedButton
+            val pending = io.narratrace.android.core.offline.OfflineLetterDraft(clientDraftId = draftId, revision = container.offlineRepository.store.load().firstOrNull { it.clientDraftId == draftId }?.revision ?: 0, recipientName = recipient.trim(), subject = subject.trim(), body = body.trim(), unlockAt = if (later) localTime.atZone(deliveryZone).toInstant().toString() else null, idempotencyKey = key, recipientEmail = email.takeIf { !selfDelivery }, selfDelivery = selfDelivery, deliveryMode = if (later) "later" else "now", deliveryTimezone = deliveryZone.id, deliveryLocalDatetime = if (later) localTime.toString() else null, circleId = circleId, circleMemberEmail = circleMemberEmail, ownerAccountId = owner.accountId, personId = draft?.personId ?: initialPersonId)
+            val saved = container.sessionManager.withCurrent(owner) { container.offlineRepository.store.save(pending) } == true
+            message = if (saved) "Private draft saved on this device. It has not been sent or scheduled." else "The draft could not be saved. Your writing remains here; please try again before leaving."
+            if (saved) { saving = true; scope.launch {
+                val synced = container.offlineRepository.syncPrivateDraft(pending, owner)
+                if (!container.sessionManager.isCurrent(owner)) return@launch
+                message = when (synced) {
+                    is FeatureResult.Success -> if (synced.value.draftState == "conflict") "Both draft versions were preserved for review. Delivery choices remain protected on this device." else "Private text draft synced. Delivery choices remain protected on this device until you review and send."
+                    else -> "Saved as an encrypted draft on this device. Sync was not confirmed. Nothing was sent or scheduled."
+                }; saving = false
+            } }
+        }, enabled = !saving && (subject.isNotBlank() || body.isNotBlank()), modifier = Modifier.fillMaxWidth()) { Text("Save private draft") }
         Button(onClick = {
             val owner = container.sessionManager.captureOperationLease() ?: return@Button
             val parsed = if (later) localTime else null
-            val pending = io.narratrace.android.core.offline.OfflineLetterDraft(clientDraftId = draftId, recipientName = recipient.trim(), subject = subject.trim(), body = body.trim(), unlockAt = parsed?.atZone(deliveryZone)?.toInstant()?.toString(), idempotencyKey = key, recipientEmail = email.takeIf { !selfDelivery }, selfDelivery = selfDelivery, deliveryMode = if (later) "later" else "now", deliveryTimezone = deliveryZone.id, deliveryLocalDatetime = parsed?.toString(), circleId = circleId, circleMemberEmail = circleMemberEmail, ownerAccountId = owner.accountId)
+            val pending = io.narratrace.android.core.offline.OfflineLetterDraft(clientDraftId = draftId, revision = container.offlineRepository.store.load().firstOrNull { it.clientDraftId == draftId }?.revision ?: 0, recipientName = recipient.trim(), subject = subject.trim(), body = body.trim(), unlockAt = parsed?.atZone(deliveryZone)?.toInstant()?.toString(), idempotencyKey = key, recipientEmail = email.takeIf { !selfDelivery }, selfDelivery = selfDelivery, deliveryMode = if (later) "later" else "now", deliveryTimezone = deliveryZone.id, deliveryLocalDatetime = parsed?.toString(), circleId = circleId, circleMemberEmail = circleMemberEmail, ownerAccountId = owner.accountId, personId = draft?.personId ?: initialPersonId)
+            val preserved = container.sessionManager.withCurrent(owner) { container.offlineRepository.store.save(pending) } == true
+            if (!preserved) { message = "Your draft could not be saved. Your writing remains here. Please try again before leaving."; return@Button }
             saving = true; message = null; scope.launch {
             val created = container.lettersRepository.create(pending.recipientName, pending.recipientEmail, pending.selfDelivery == true, pending.subject, pending.body, if (pending.deliveryMode == "later") DeliveryMode.LATER else DeliveryMode.NOW, parsed, pending.idempotencyKey, pending.circleId, pending.circleMemberEmail, pending.deliveryTimezone!!, operationLease = owner)
             if (!container.sessionManager.isCurrent(owner)) return@launch
             container.sessionManager.withCurrent(owner) {
             when (created) {
-                is FeatureResult.Success -> { draft?.let { container.offlineRepository.store.remove(it.clientDraftId) }; message = if (created.value.verificationPending) "Letter saved. Recipient verification is pending; no content was shared." else "Letter saved."; recipient = ""; email = ""; subject = ""; body = ""; key = UUID.randomUUID().toString() }
+                is FeatureResult.Success -> { container.offlineRepository.store.remove(draftId); message = if (created.value.verificationPending) "Letter saved. Recipient verification is pending; no content was shared." else "Letter saved."; recipient = ""; email = ""; subject = ""; body = ""; key = UUID.randomUUID().toString() }
                 is FeatureResult.Unavailable -> {
-                    if (!created.offline) { deliveryContactRequired = created.code == "DELIVERY_CONTACT_REQUIRED"; message = created.message; saving = false; return@withCurrent }
+                    if (!created.offline) { deliveryContactRequired = created.code == "DELIVERY_CONTACT_REQUIRED"; message = "${created.message} Your private draft is saved on this device. Delivery was not confirmed."; saving = false; return@withCurrent }
                     val saved = container.offlineRepository.store.save(pending)
                     message = if (saved) "Encrypted draft saved on this device. Open this draft to confirm delivery when connected." else created.message
                 }
@@ -1887,8 +1912,11 @@ private fun LetterComposerScreen(container: AppContainer, modifier: Modifier, dr
                 }
             }; saving = false
             }
-        } }, enabled = !saving && recipient.trim().isNotEmpty() && subject.trim().isNotEmpty() && body.trim().isNotEmpty() && (selfDelivery || (circleId != null && circleDetail is FeatureResult.Success) || (circleId == null && email.trim().isNotEmpty())), modifier = Modifier.fillMaxWidth()) { Text("Save Letter") }
-        if (deliveryContactRequired) TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account?client=android#delivery-contact-email".toUri())) }) { Text("Verify delivery contact") }
+        } }, enabled = !saving && recipient.trim().isNotEmpty() && subject.trim().isNotEmpty() && body.trim().isNotEmpty() && (selfDelivery || (circleId != null && circleDetail is FeatureResult.Success) || (circleId == null && email.trim().isNotEmpty())), modifier = Modifier.fillMaxWidth()) { Text(if (saving) "Saving…" else if (later) "Schedule Letter" else "Send Letter") }
+        if (deliveryContactRequired) TextButton(onClick = { deliveryEmailOpen = true }) { Text("Verify my delivery email") }
+        if (deliveryEmailOpen) androidx.compose.ui.window.Dialog(onDismissRequest = { deliveryEmailOpen = false }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+            Surface(Modifier.fillMaxSize()) { DeliveryContactScreen(container, Modifier) { deliveryEmailOpen = false } }
+        }
         message?.let { Text(niaStyledText(it), color = if (it.contains("saved")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }
     }
 }
@@ -1897,10 +1925,11 @@ private fun LetterComposerScreen(container: AppContainer, modifier: Modifier, dr
 private fun LetterDetailScreen(container: AppContainer, letterId: String, modifier: Modifier, close: () -> Unit) {
     var result by remember { mutableStateOf<FeatureResult<io.narratrace.android.core.letters.LetterDetailResponse>?>(null) }
     var email by remember { mutableStateOf("") }; var busy by remember { mutableStateOf(false) }; var confirmDelete by remember { mutableStateOf(false) }
+    var reportedDuringVisit by remember(letterId) { mutableStateOf(false) }
     var retry by remember { mutableIntStateOf(0) }
     var message by remember { mutableStateOf<String?>(null) }; val scope = rememberCoroutineScope()
     LaunchedEffect(letterId, retry) { result = container.lettersRepository.letter(letterId) }
-    if (confirmDelete) AlertDialog(onDismissRequest = { confirmDelete = false }, title = { Text("Cancel this Letter?") }, text = { Text("The Letter and its pending delivery will be permanently removed.") }, confirmButton = { Button(onClick = { confirmDelete = false; busy = true; scope.launch { val deleted = container.lettersRepository.delete(letterId); if (deleted is FeatureResult.Success) close() else message = deleted.failureMessage(); busy = false } }) { Text("Cancel Letter") } }, dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep Letter") } })
+    if (confirmDelete) AlertDialog(onDismissRequest = { confirmDelete = false }, title = { Text("Delete this Letter permanently?") }, text = { Text("This removes the Letter, revokes its delivery access, and deletes its voice recording. You will confirm with a verification code.") }, confirmButton = { Button(onClick = { confirmDelete = false; busy = true; scope.launch { val deleted = container.lettersRepository.delete(letterId); if (deleted is FeatureResult.Success) close() else message = deleted.failureMessage(); busy = false } }) { Text("Delete Letter") } }, dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep Letter") } })
     BackHandler(onBack = close)
     when (val loaded = result) {
         null -> LoadingSurface(modifier, "Letter", "Opening private Letter…")
@@ -1908,7 +1937,8 @@ private fun LetterDetailScreen(container: AppContainer, letterId: String, modifi
         is FeatureResult.Unavailable -> RetrySurface(modifier, "Letter unavailable", loaded.message, loaded.supportReference) { result = null; retry++ }
         is FeatureResult.Success -> { val letter = loaded.value.letter; Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Letters") }; Text(letter.subject, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
-            ContentReportButton(container, "letter", letter.id)
+            if (letter.contentReported == true || reportedDuringVisit) Text(REPORTED_LETTER_MESSAGE, color = MaterialTheme.colorScheme.error)
+            if (letter.canDisplayContent()) LetterContentReportButton(container, letter.id) { reportedDuringVisit = true; retry++ }
             Text("To ${letter.recipientName}"); Text(letterDeliveryStatus(letter.deliveryState, letter.recipientVerified, letter.delivered, letter.unlockAt))
             if (letter.canDisplayContent()) {
                 Text(letter.body!!, style = MaterialTheme.typography.bodyLarge)
@@ -1921,14 +1951,14 @@ private fun LetterDetailScreen(container: AppContainer, letterId: String, modifi
                 }
             }
             else Text("Letter content remains private until authorized delivery.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (letter.isOwner) LetterVoiceAttachment(container, letter.id) { retry++ }
-            if (letter.isOwner && !letter.sharedDeliveryManaged && letter.deliveryState == "pending_verification" && !letter.recipientVerified && letter.canCancel) {
+            if (letter.canModify() && !reportedDuringVisit) LetterVoiceAttachment(container, letter.id) { retry++ }
+            if (letter.canModify() && !reportedDuringVisit && !letter.sharedDeliveryManaged && letter.deliveryState == "pending_verification" && !letter.recipientVerified && letter.canCancel) {
                 Button(onClick = { busy = true; scope.launch { val value = container.lettersRepository.manage(letter.id, "resend_verification"); message = if (value is FeatureResult.Success) "Verification sent. No Letter content was included." else "Verification could not be sent."; busy = false } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Resend verification") }
                 OutlinedTextField(email, { email = it.take(254) }, Modifier.fillMaxWidth(), label = { Text("Correct recipient email") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
                 Button(onClick = { busy = true; scope.launch { val value = container.lettersRepository.manage(letter.id, "update_recipient_email", email); message = if (value is FeatureResult.Success) "Recipient updated. The previous verification link was revoked." else "Recipient could not be updated."; busy = false } }, enabled = !busy && email.trim().isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("Update recipient and resend") }
             }
             message?.let { Text(niaStyledText(it), style = MaterialTheme.typography.bodySmall) }
-            if (letter.isOwner && letter.canCancel) TextButton(onClick = { confirmDelete = true }, Modifier.fillMaxWidth()) { Text("Cancel Letter", color = MaterialTheme.colorScheme.error) }
+            if (letter.canModify() && !reportedDuringVisit) TextButton(onClick = { confirmDelete = true }, Modifier.fillMaxWidth()) { Text("Delete Letter permanently", color = MaterialTheme.colorScheme.error) }
         } }
     }
 }
@@ -1947,16 +1977,27 @@ private fun AudioCaptureScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     val recorder = remember { SecureAudioRecorder(context) }
-    var recording by remember { mutableStateOf(false) }
+    val recordingState by recorder.state.collectAsStateWithLifecycle()
+    val recording = recordingState == SecureAudioRecorder.State.Recording
+    val hasRecording = recordingState != SecureAudioRecorder.State.Idle
     var remainingSeconds by remember { mutableStateOf(maxSeconds?.coerceAtMost(600) ?: 600) }
     var message by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted && recorder.start(maxSeconds?.coerceAtMost(600))) { recording = true; remainingSeconds = maxSeconds?.coerceAtMost(600) ?: 600; message = "Recording privately on this device…" }
+        if (granted && lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) && recorder.start(maxSeconds?.coerceAtMost(600) ?: 600)) { remainingSeconds = maxSeconds?.coerceAtMost(600) ?: 600; message = "Recording privately on this device…" }
         else message = "Microphone access is required to record audio."
     }
-    DisposableEffect(Unit) { onDispose { recorder.discard() } }
+    DisposableEffect(lifecycle) {
+        lifecycle.addObserver(recorder)
+        onDispose { lifecycle.removeObserver(recorder); recorder.discard() }
+    }
+    LaunchedEffect(recordingState) {
+        if (recordingState == SecureAudioRecorder.State.Interrupted) {
+            message = "Recording interrupted or finished. Stop and preserve this take, or go back to discard it."
+        }
+    }
     LaunchedEffect(recording, remainingSeconds) {
         if (recording && remainingSeconds > 0) {
             delay(1_000)
@@ -1977,13 +2018,13 @@ private fun AudioCaptureScreen(
         if (!assisted) Text("The recording stays private and encrypted until Narratrace verifies durable preservation.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Button(
             onClick = {
-                if (!recording) {
+                if (!hasRecording) {
                     if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                        if (recorder.start(maxSeconds?.coerceAtMost(600))) { recording = true; remainingSeconds = maxSeconds?.coerceAtMost(600) ?: 600; message = "Recording privately on this device…" }
+                        if (recorder.start(maxSeconds?.coerceAtMost(600) ?: 600)) { remainingSeconds = maxSeconds?.coerceAtMost(600) ?: 600; message = "Recording privately on this device…" }
                         else message = "The recording could not start."
                     } else permission.launch(Manifest.permission.RECORD_AUDIO)
                 } else {
-                    val bytes = recorder.stop(); recording = false
+                    val bytes = recorder.stop()
                     if (bytes == null || bytes.isEmpty()) message = "No recording was saved."
                     else {
                         busy = true
@@ -2002,7 +2043,7 @@ private fun AudioCaptureScreen(
                     }
                 }
             }, enabled = !busy, modifier = Modifier.fillMaxWidth().height(if (assisted) 80.dp else 48.dp),
-        ) { Text(if (recording) "Stop and preserve" else "Start recording") }
+        ) { Text(if (hasRecording) "Stop and preserve" else "Start recording") }
         if (recording) Text("%02d:%02d remaining".format(remainingSeconds / 60, remainingSeconds % 60), style = MaterialTheme.typography.bodySmall)
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         message?.let { Text(
@@ -2109,6 +2150,7 @@ private fun GuidedInterviewsScreen(container: AppContainer, modifier: Modifier, 
 
 @Composable
 private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSummary, modifier: Modifier, close: () -> Unit) {
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val context = LocalContext.current
     var result by remember { mutableStateOf<FeatureResult<InterviewDetail>?>(null) }
     var refresh by remember { mutableStateOf(0) }
@@ -2186,7 +2228,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
         return
     }
     BackHandler(onBack = close)
-    LazyColumn(modifier.fillMaxSize().imePadding(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(modifier.fillMaxSize().imePadding(), state = listState, contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to interviews") }
             Text(summary.subjectName, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
@@ -2224,6 +2266,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
                         if (questionSpeech.failedMessageId == message.id) questionSpeech.error?.let { Text(niaStyledText(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                     }
                     if (message.hasMedia) InterviewRecording(container, summary.id, message.id, message.mediaType)
+                    if (message.role == "user") InterviewResponseActions(container, summary.id, message) { result = null; refresh++ }
                 } } }
                 if (loaded.value.interview.status != "complete") {
                     if (recordingMode == "self") {
@@ -2235,7 +2278,10 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
                                 FeatureResult.AuthenticationRequired -> processingMessage = "Sign in again before sending this response."
                             }
                             sending = false
-                        } }, enabled = !sending && response.trim().isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("Send response") } }
+                        } }, enabled = !sending && response.trim().isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text(if (sending) "Sending response…" else "Send response") } }
+                    }
+                    if (recordingMode == null) item {
+                        TextButton(onClick = { scope.launch { listState.animateScrollToItem(3) } }, modifier = Modifier.fillMaxWidth()) { Text("Choose how you’re recording above to start the interview") }
                     }
                     if (recordingMode != null) item { Button(onClick = { questionSpeech.stop(); audio = true }, enabled = (capacity as? FeatureResult.Success)?.value?.audioMaxSeconds?.let { it > 0 } == true, modifier = Modifier.fillMaxWidth().height(if (recordingMode == "together") 80.dp else 48.dp)) { Text("Record audio response") } }
                     if (recordingMode == "self") item { Button(onClick = { videoPicker.launch("video/*") }, enabled = (capacity as? FeatureResult.Success)?.value?.videoMaxSeconds?.let { it > 0 } == true, modifier = Modifier.fillMaxWidth()) { Text("Add video response") } }
@@ -2376,6 +2422,7 @@ private fun CustomerPeopleScreenContent(container: AppContainer, modifier: Modif
                 modifier = modifier,
                 close = { relationshipMap = false },
                 addPerson = { relationshipMap = false; creating = true },
+                openPerson = { relationshipMap = false; selectedPersonId = it.id },
             )
             else -> relationshipMap = false
         }
@@ -2457,6 +2504,8 @@ private fun CustomerPersonDetailScreen(
 ) {
     var destination by remember(personId) { mutableStateOf<Pair<String, String>?>(null) }
     destination?.let { ResourceDestination(container, it.first, it.second, modifier) { destination = null }; return }
+    var composing by remember(personId) { mutableStateOf(false) }
+    var selectedDraft by remember(personId) { mutableStateOf<io.narratrace.android.core.offline.OfflineLetterDraft?>(null) }
     var editing by remember(personId) { mutableStateOf(false) }
     var result by remember(personId) { mutableStateOf<CustomerPersonResult?>(null) }
     var refreshKey by remember(personId) { mutableStateOf(0) }
@@ -2470,12 +2519,17 @@ private fun CustomerPersonDetailScreen(
             retry = { result = null; refreshKey++ },
         )
         is CustomerPersonResult.Success -> if (editing) PersonEditorScreen(container, current.value.id, current.value.name, current.value.relation.orEmpty(), modifier) { editing = false; refreshKey++ }
-        else VerifiedPersonDetail(current.value, modifier, onBack, edit = { editing = true }, open = { kind, id -> destination = kind to id })
+        else if (composing) LetterComposerScreen(container, modifier, selectedDraft, initialPersonId = personId, initialRecipientName = current.value.name) { composing = false; selectedDraft = null; refreshKey++ }
+        else VerifiedPersonDetail(current.value, modifier, onBack, edit = { editing = true }, open = { kind, id -> destination = kind to id },
+            drafts = container.offlineRepository.store.load().filter { it.personId == personId },
+            writeLetter = { selectedDraft = null; composing = true }, reviewDraft = { selectedDraft = it; composing = true })
     }
 }
 
 @Composable
-private fun VerifiedPersonDetail(person: RemotePersonDetail, modifier: Modifier, onBack: () -> Unit, edit: () -> Unit, open: (String, String) -> Unit) {
+private fun VerifiedPersonDetail(person: RemotePersonDetail, modifier: Modifier, onBack: () -> Unit, edit: () -> Unit, open: (String, String) -> Unit,
+    drafts: List<io.narratrace.android.core.offline.OfflineLetterDraft>, writeLetter: () -> Unit, reviewDraft: (io.narratrace.android.core.offline.OfflineLetterDraft) -> Unit) {
+    var draftsOpen by remember(person.id) { mutableStateOf(false) }
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp),
@@ -2496,6 +2550,11 @@ private fun VerifiedPersonDetail(person: RemotePersonDetail, modifier: Modifier,
         if (person.interviews.isEmpty()) item { Text("No connected interviews.") }
         else items(person.interviews, key = { "interview:${it.id}" }) { interview -> TextButton(onClick = { open("interview", interview.id) }) { Text("${interview.status.replace('_', ' ').replaceFirstChar(Char::uppercase)} interview") } }
         item { Text("Letters (${person.letters.size})", style = MaterialTheme.typography.titleLarge) }
+        item { OutlinedButton(writeLetter, Modifier.fillMaxWidth()) { Text("Write a Letter") } }
+        if (drafts.isNotEmpty()) {
+            item { TextButton({ draftsOpen = !draftsOpen }) { Text("Private drafts on this device (${drafts.size}) ${if (draftsOpen) "▴" else "▾"}") } }
+            if (draftsOpen) items(drafts, key = { "draft:${it.clientDraftId}" }) { draft -> TextButton({ reviewDraft(draft) }) { Text(draft.subject.ifBlank { "Untitled Letter" }) } }
+        }
         if (person.letters.isEmpty()) item { Text("No connected Letters.") }
         else items(person.letters, key = { "letter:${it.id}" }) { letter ->
             Card(Modifier.fillMaxWidth().clickable { open("letter", letter.id) }) { Column(Modifier.padding(16.dp)) {
@@ -2531,31 +2590,6 @@ private fun PersonEditorScreen(container: AppContainer, id: String?, initialName
             saving = false
         } }, enabled = !saving && name.trim().isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("Save person") }
         message?.let { Text(niaStyledText(it), color = MaterialTheme.colorScheme.error) }
-    }
-}
-
-@Composable
-private fun RelationshipMapScreen(people: List<RemotePerson>, modifier: Modifier, close: () -> Unit, addPerson: () -> Unit) {
-    fun generation(relation: String?): String {
-        val value = relation.orEmpty().lowercase()
-        return when {
-            listOf("grandchild", "child", "son", "daughter", "niece", "nephew").any(value::contains) -> "Younger generations"
-            listOf("grand", "parent", "aunt", "uncle", "elder").any(value::contains) -> "Older generations"
-            listOf("sibling", "brother", "sister", "spouse", "partner", "cousin", "friend").any(value::contains) -> "Your generation"
-            else -> "Other relationships"
-        }
-    }
-    val groups = people.groupBy { generation(it.relation) }
-    val order = listOf("Older generations", "Your generation", "Younger generations", "Other relationships")
-    LazyColumn(modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to People") }; Text("Relationship map", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) } }
-        item { Text("Relationships determine placement. Edit a person’s relationship to move them between generations.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        order.forEach { title -> groups[title]?.let { members -> item { Text(niaStyledText(title), style = MaterialTheme.typography.titleLarge) }; items(members, key = { "map:${it.id}" }) { person -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) { Text(person.name, style = MaterialTheme.typography.titleMedium); Text(person.relation ?: "Relationship not specified", color = MaterialTheme.colorScheme.onSurfaceVariant) } } } } }
-        if (people.isEmpty()) {
-            item { Text("Your relationship map is ready for its first person.", style = MaterialTheme.typography.titleLarge) }
-            item { Text("Add a person to begin connecting the relationships in your story.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            item { Button(onClick = addPerson, modifier = Modifier.fillMaxWidth()) { Text("Add a person") } }
-        }
     }
 }
 
@@ -2701,7 +2735,12 @@ private fun CustomerLibraryScreenContent(container: AppContainer, modifier: Modi
         )
         return
     }
-    LaunchedEffect(refreshKey) { result = container.customerRepository.loadMemories(); media = container.mediaRepository.media() }
+    LaunchedEffect(refreshKey) {
+        kotlinx.coroutines.coroutineScope {
+            launch { result = container.customerRepository.loadMemories() }
+            launch { media = container.mediaRepository.media() }
+        }
+    }
 
     when (val current = result) {
         null -> Column(
@@ -2730,6 +2769,7 @@ private fun CustomerLibraryScreenContent(container: AppContainer, modifier: Modi
             (media as? FeatureResult.Success)?.value?.media.orEmpty(),
             modifier = modifier,
             mediaVerified = media is FeatureResult.Success,
+            mediaLoading = media == null,
             showIllustration = shouldShowLibraryIllustration(media),
             wallOnly = wallOnly,
             open = { selectedMemoryId = it.id },
@@ -2739,7 +2779,7 @@ private fun CustomerLibraryScreenContent(container: AppContainer, modifier: Modi
 }
 
 @Composable
-private fun VerifiedLibrary(container: AppContainer, mode: String, memories: List<RemoteMemory>, media: List<MediaSummary>, modifier: Modifier, mediaVerified: Boolean, showIllustration: Boolean, wallOnly: Boolean, open: (RemoteMemory) -> Unit, openMedia: (MediaSummary) -> Unit) {
+private fun VerifiedLibrary(container: AppContainer, mode: String, memories: List<RemoteMemory>, media: List<MediaSummary>, modifier: Modifier, mediaVerified: Boolean, mediaLoading: Boolean, showIllustration: Boolean, wallOnly: Boolean, open: (RemoteMemory) -> Unit, openMedia: (MediaSummary) -> Unit) {
     var destination by remember { mutableStateOf<Pair<String, String>?>(null) }
     destination?.let { ResourceDestination(container, it.first, it.second, modifier) { destination = null }; return }
     var query by remember { mutableStateOf("") }
@@ -2781,7 +2821,8 @@ private fun VerifiedLibrary(container: AppContainer, mode: String, memories: Lis
         if (!wallOnly) {
         item { Text("Audio, photos, and videos", style = MaterialTheme.typography.titleLarge) }
         if (showIllustration) item { LibraryPhotoIllustration() }
-        if (!mediaVerified) item { Text("Your media could not yet be verified. Return to Media to try again.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (mediaLoading) item { LoadingMessage("Loading your private Media…") }
+        else if (!mediaVerified) item { Text("Your media could not yet be verified. Return to Media to try again.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         else if (media.isEmpty()) item { Text("No preserved media yet.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         else items(media, key = { "media:${it.id}" }) { item -> Card(Modifier.fillMaxWidth().clickable { openMedia(item) }) { Column(Modifier.padding(16.dp)) {
             Text(item.title, style = MaterialTheme.typography.titleMedium)
@@ -2793,6 +2834,7 @@ private fun VerifiedLibrary(container: AppContainer, mode: String, memories: Lis
 
 @Composable
 private fun CustomerMediaDetailScreen(container: AppContainer, mediaId: String, modifier: Modifier, close: () -> Unit) {
+    var settingsOpen by remember(mediaId) { mutableStateOf(false) }
     var result by remember(mediaId) { mutableStateOf<FeatureResult<io.narratrace.android.core.media.MediaDetailResponse>?>(null) }
     var photoBytes by remember(mediaId) { mutableStateOf<ByteArray?>(null) }
     var photoLoading by remember(mediaId) { mutableStateOf(true) }
@@ -2828,6 +2870,7 @@ private fun CustomerMediaDetailScreen(container: AppContainer, mediaId: String, 
         if (detail?.kind == "photo" && detail.playbackUrl != null) photoBytes = container.mediaRepository.playback(detail.playbackUrl)
         photoLoading = false
     }
+    if (settingsOpen) { ProfileSettingsScreen(container, modifier, focusInsights = true) { settingsOpen = false; loadRevision++ }; return }
     if (delivering) { ArtifactDeliveryComposer(container, mediaId, modifier) { delivering = false }; return }
     if (confirmDelete) AlertDialog(
         onDismissRequest = { confirmDelete = false }, title = { Text("Delete this media?") },
@@ -2845,6 +2888,7 @@ private fun CustomerMediaDetailScreen(container: AppContainer, mediaId: String, 
                 Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Media") }; Text(detail.title, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
                 ContentReportButton(container, "media", mediaId)
                 if (detail.kind == "photo") {
+                    if (!photoInsightsEnabled) TextButton({ settingsOpen = true }) { Text(niaStyledText("Review Nia’s media insights in Profile")) }
                     val bitmap = photoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
                     when {
                         bitmap != null -> Image(bitmap.asImageBitmap(), "Preserved photo", Modifier.fillMaxWidth())
@@ -2855,19 +2899,10 @@ private fun CustomerMediaDetailScreen(container: AppContainer, mediaId: String, 
                         }
                     }
                 }
-                else detail.playbackUrl?.let { url -> AndroidView(
-                    factory = { ctx -> VideoView(ctx).apply {
-                        contentDescription = "Protected ${detail.kind} player for ${detail.title}"
-                        isFocusable = true
-                        isFocusableInTouchMode = true
-                        val controls = MediaController(ctx)
-                        controls.setAnchorView(this)
-                        setMediaController(controls)
-                        setVideoPath(url)
-                        setOnPreparedListener { start() }
-                    } },
-                    modifier = Modifier.fillMaxWidth().height(if (detail.kind == "video") 260.dp else 80.dp),
-                ) }
+                else if (detail.kind == "audio") detail.playbackUrl?.let { url -> ProtectedAudioButton("Play recording") {
+                    container.mediaRepository.playback(url)?.let { FeatureResult.Success(it) } ?: FeatureResult.Unavailable("Recording could not be opened. Try again.")
+                } }
+                else detail.playbackUrl?.let { url -> ProtectedStreamVideo(url, detail.title) }
                 detail.caption?.takeIf(String::isNotBlank)?.let { Text(niaStyledText(it)) }
                 detail.transcript?.takeIf(String::isNotBlank)?.let { Text("Transcript", style = MaterialTheme.typography.titleLarge); Text(niaStyledText(it)) }
                 detail.summary?.takeIf(String::isNotBlank)?.let { Text("Summary", style = MaterialTheme.typography.titleLarge); Text(niaStyledText(it)) }
@@ -2918,6 +2953,7 @@ private fun ArtifactDeliveryComposer(container: AppContainer, uploadId: String, 
     var deliveryZone by remember { mutableStateOf(java.time.ZoneId.systemDefault()) }
     var local by remember { mutableStateOf(LocalDateTime.now(deliveryZone).plusDays(1).withHour(9).withMinute(0).withSecond(0).withNano(0)) }; var busy by remember { mutableStateOf(false) }; var message by remember { mutableStateOf<String?>(null) }
     var deliveryContactRequired by remember { mutableStateOf(false) }
+    var deliveryEmailOpen by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope(); BackHandler(enabled = !busy, onBack = close)
     Column(modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -2937,7 +2973,10 @@ private fun ArtifactDeliveryComposer(container: AppContainer, uploadId: String, 
                 FeatureResult.AuthenticationRequired -> message = "Sign in again before creating delivery."
             }; busy = false
         } }, enabled = !busy && name.trim().isNotEmpty() && (self || email.trim().isNotEmpty()), modifier = Modifier.fillMaxWidth()) { Text("Create delivery") }
-        if (deliveryContactRequired) TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.narratrace.io/account?client=android#delivery-contact-email".toUri())) }) { Text("Verify delivery contact") }
+        if (deliveryContactRequired) TextButton(onClick = { deliveryEmailOpen = true }) { Text("Verify my delivery email") }
+        if (deliveryEmailOpen) androidx.compose.ui.window.Dialog(onDismissRequest = { deliveryEmailOpen = false }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+            Surface(Modifier.fillMaxSize()) { DeliveryContactScreen(container, Modifier) { deliveryEmailOpen = false } }
+        }
         message?.let { Text(niaStyledText(it), color = if (it.startsWith("Delivery")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }
     }
 }

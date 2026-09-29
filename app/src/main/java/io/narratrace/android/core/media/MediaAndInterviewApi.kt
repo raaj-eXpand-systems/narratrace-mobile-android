@@ -37,6 +37,10 @@ import kotlinx.serialization.serializer
     val requiresCheckout: Boolean = false,
     val preservationAcknowledgement: PreservationAcknowledgement? = null,
 )
+@Serializable data class CorrectedTranscript(val content: String, val derivedContentInvalidated: Boolean)
+@Serializable data class RemovedResponses(val deletedIds: List<String>)
+@Serializable private data class TranscriptCorrection(val messageId: String, val content: String)
+@Serializable private data class RemoveResponse(val messageId: String)
 @Serializable private data class QuestionSpeechRequest(val messageId: String)
 @Serializable private data class InterviewTextResponse(val content: String)
 @Serializable data class RecordingCapacity(
@@ -111,6 +115,12 @@ class MediaAndInterviewApi(private val client: NarratraceApiClient) {
         "/api/v1/uploads", mobileUploadRequestBody(item, "confirm", auth.storagePath), serializer<UploadConfirmation>(), token,
     )
     suspend fun transfer(auth: UploadAuthorization, bytes: ByteArray, mime: String) = client.putSignedStorage(auth.uploadUrl, bytes, mime)
+    suspend fun correctTranscript(id: String, messageId: String, content: String, token: String): ApiResult<CorrectedTranscript> = client.patch(
+        "/api/v1/interviews/${segment(id)}/messages", NarratraceJson.encodeToString(TranscriptCorrection(messageId, content)), serializer<CorrectedTranscript>(), token,
+    )
+    suspend fun removeResponse(id: String, messageId: String, token: String): ApiResult<RemovedResponses> = client.delete(
+        "/api/v1/interviews/${segment(id)}/messages", serializer<RemovedResponses>(), token, NarratraceJson.encodeToString(RemoveResponse(messageId)), deletionResource = "response:$id:$messageId",
+    )
     suspend fun questionSpeech(id: String, messageId: String, token: String) = client.postAudio("/api/v1/interviews/${segment(id)}/speech", NarratraceJson.encodeToString(QuestionSpeechRequest(messageId)), token)
     suspend fun interviewAudio(id: String, messageId: String, token: String) = client.getAudio("/api/v1/interviews/${segment(id)}/messages/${segment(messageId)}/audio", token)
     suspend fun interviewVideo(id: String, messageId: String, token: String): ApiResult<ProtectedPlayback> = client.get("/api/v1/interviews/${segment(id)}/messages/${segment(messageId)}/media", serializer<ProtectedPlayback>(), token)
@@ -146,7 +156,7 @@ class MediaAndInterviewApi(private val client: NarratraceApiClient) {
     suspend fun status(id: String, status: String, token: String): ApiResult<InterviewMutation> = client.patch(
         "/api/v1/interviews/${segment(id)}", NarratraceJson.encodeToString(InterviewStatus(status)), serializer<InterviewMutation>(), token,
     )
-    suspend fun deleteInterview(id: String, token: String): ApiResult<InterviewMutation> = client.delete("/api/v1/interviews/${segment(id)}", serializer<InterviewMutation>(), token)
+    suspend fun deleteInterview(id: String, token: String): ApiResult<InterviewMutation> = client.delete("/api/v1/interviews/${segment(id)}", serializer<InterviewMutation>(), token, deletionResource = "interview:$id")
     suspend fun insights(id: String, token: String): ApiResult<InterviewInsights> = client.get("/api/v1/interviews/${segment(id)}/insights", serializer<InterviewInsights>(), token)
     suspend fun narrative(id: String, generate: Boolean, token: String): ApiResult<InterviewNarrative> = if (generate) client.post(
         "/api/v1/interviews/${segment(id)}/narrative", NarratraceJson.encodeToString(NarrativeGroundingConsent(groundingAgreementAccepted = true)), serializer<InterviewNarrative>(), token,
@@ -158,7 +168,7 @@ class MediaAndInterviewApi(private val client: NarratraceApiClient) {
     }
     suspend fun media(token: String): ApiResult<MediaList> = client.get("/api/v1/media", serializer<MediaList>(), token)
     suspend fun mediaDetail(id: String, token: String): ApiResult<MediaDetailResponse> = client.get("/api/v1/media/${segment(id)}", serializer<MediaDetailResponse>(), token)
-    suspend fun deleteMedia(id: String, token: String): ApiResult<Deleted> = client.delete("/api/v1/media/${segment(id)}", serializer<Deleted>(), token)
+    suspend fun deleteMedia(id: String, token: String): ApiResult<Deleted> = client.delete("/api/v1/media/${segment(id)}", serializer<Deleted>(), token, deletionResource = "media:$id")
     suspend fun updateCaption(id: String, caption: String, token: String): ApiResult<MediaMutation> = client.patch("/api/v1/media/${segment(id)}", NarratraceJson.encodeToString(MediaCaptionInput(caption)), serializer<MediaMutation>(), token)
     suspend fun updateTags(id: String, tags: List<String>, token: String): ApiResult<MediaTagsMutation> = client.patch("/api/v1/media/${segment(id)}", NarratraceJson.encodeToString(MediaTagsInput(tags)), serializer<MediaTagsMutation>(), token)
     suspend fun refreshPhotoInsights(id: String, token: String): ApiResult<PhotoInsightRefresh> = client.post(

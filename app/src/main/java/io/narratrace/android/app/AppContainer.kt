@@ -70,10 +70,12 @@ class AppContainer(context: Context) {
     private val supportPreferences = appContext.getSharedPreferences("support.v1", Context.MODE_PRIVATE)
     fun latestSupportReference(): String = supportPreferences.getString("latest", "").orEmpty()
 
+    val deletionVerification by lazy { io.narratrace.android.core.network.DeletionVerification(sessionManager) }
     val apiClient: NarratraceApiClient by lazy {
         NarratraceApiClient(
             baseUrl = BuildConfig.API_BASE_URL,
             appVersion = BuildConfig.VERSION_NAME,
+            deletionVerification = { challenge, bearer, error -> deletionVerification.request(challenge, bearer, error) },
             supportReferenceSink = { supportPreferences.edit().putString("latest", it).apply() },
         )
     }
@@ -91,6 +93,7 @@ class AppContainer(context: Context) {
 
     val authApi: AuthApi by lazy { AuthApi(apiClient) }
     private val installationIdentity by lazy { AppInstallationIdentity() }
+    val deliveryContactRepository by lazy { io.narratrace.android.core.customer.DeliveryContactRepository(apiClient, sessionManager) }
     val customerApi: CustomerApi by lazy { CustomerApi(apiClient) }
     val accountLifecycleApi: AccountLifecycleApi by lazy { AccountLifecycleApi(apiClient) }
     val securityRepository: SecurityRepository by lazy { SecurityRepository(authApi, sessionManager) }

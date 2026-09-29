@@ -10,8 +10,14 @@ import io.narratrace.android.core.ui.NarratraceAppearance
 
 class AppearanceStore(context: Context) {
     private val preferences = context.getSharedPreferences("appearance.v1", Context.MODE_PRIVATE)
-    fun load(): NarratraceAppearance = runCatching { NarratraceAppearance.valueOf(preferences.getString("mode", null) ?: "UpcomingPreview") }.getOrDefault(NarratraceAppearance.UpcomingPreview)
-    fun save(value: NarratraceAppearance): Boolean = preferences.edit().putString("mode", value.name).commit()
+    private fun read(): NarratraceAppearance = runCatching { NarratraceAppearance.valueOf(preferences.getString("mode", null) ?: "UpcomingPreview") }.getOrDefault(NarratraceAppearance.UpcomingPreview)
+    private val current = androidx.compose.runtime.mutableStateOf(read())
+    fun load(): NarratraceAppearance = current.value
+    fun save(value: NarratraceAppearance): Boolean {
+        if (!preferences.edit().putString("mode", value.name).commit()) return false
+        current.value = value
+        return true
+    }
 }
 
 class SettingsRepository(private val api: SettingsApi, private val sessions: SessionManager) {
@@ -34,8 +40,11 @@ class SettingsRepository(private val api: SettingsApi, private val sessions: Ses
         return call { api.installation(BuildConfig.VERSION_NAME, osVersion, pushToken, true, it) }
     }
     private suspend fun <T> call(block: suspend (String) -> ApiResult<T>): FeatureResult<T> {
-        val lease = sessions.accessToken(); if (lease !is TokenLease.Valid) return FeatureResult.AuthenticationRequired
-        var result = block(lease.accessToken); if (result is ApiResult.Unauthorized) { val recovered = sessions.recoverFromUnauthorized(lease.accessToken); if (recovered !is TokenLease.Valid) return FeatureResult.AuthenticationRequired; result = block(recovered.accessToken) }
+        val owner = sessions.captureOperationLease() ?: return FeatureResult.AuthenticationRequired
+        val lease = sessions.accessToken(); if (!sessions.isCurrent(owner) || lease !is TokenLease.Valid) return FeatureResult.AuthenticationRequired
+        var result = block(lease.accessToken); if (!sessions.isCurrent(owner)) return FeatureResult.AuthenticationRequired
+        if (result is ApiResult.Unauthorized) { val recovered = sessions.recoverFromUnauthorized(lease.accessToken); if (!sessions.isCurrent(owner) || recovered !is TokenLease.Valid) return FeatureResult.AuthenticationRequired; result = block(recovered.accessToken) }
+        if (!sessions.isCurrent(owner)) return FeatureResult.AuthenticationRequired
         return when (result) { is ApiResult.Success -> FeatureResult.Success(result.value); is ApiResult.Unauthorized -> FeatureResult.AuthenticationRequired; is ApiResult.Failure -> FeatureResult.Unavailable(result.message, result.supportReference) }
     }
 }

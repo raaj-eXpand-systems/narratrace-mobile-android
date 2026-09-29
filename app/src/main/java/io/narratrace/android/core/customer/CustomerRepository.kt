@@ -345,9 +345,12 @@ class CustomerRepository(
     }
 
     private suspend fun <T> genericCall(block: suspend (String) -> ApiResult<T>): FeatureResult<T> {
-        val lease = sessions.accessToken(); if (lease !is TokenLease.Valid) return FeatureResult.AuthenticationRequired
+        val owner = sessions.captureOperationLease() ?: return FeatureResult.AuthenticationRequired
+        val lease = sessions.accessToken(); if (!sessions.isCurrent(owner) || lease !is TokenLease.Valid) return FeatureResult.AuthenticationRequired
         var result = block(lease.accessToken)
-        if (result is ApiResult.Unauthorized) { val recovered = sessions.recoverFromUnauthorized(lease.accessToken); if (recovered !is TokenLease.Valid) return FeatureResult.AuthenticationRequired; result = block(recovered.accessToken) }
+        if (!sessions.isCurrent(owner)) return FeatureResult.AuthenticationRequired
+        if (result is ApiResult.Unauthorized) { val recovered = sessions.recoverFromUnauthorized(lease.accessToken); if (!sessions.isCurrent(owner) || recovered !is TokenLease.Valid) return FeatureResult.AuthenticationRequired; result = block(recovered.accessToken) }
+        if (!sessions.isCurrent(owner)) return FeatureResult.AuthenticationRequired
         return when (result) { is ApiResult.Success -> FeatureResult.Success(result.value); is ApiResult.Unauthorized -> FeatureResult.AuthenticationRequired; is ApiResult.Failure -> FeatureResult.Unavailable(result.message, result.supportReference) }
     }
 }

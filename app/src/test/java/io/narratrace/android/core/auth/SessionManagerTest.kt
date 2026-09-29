@@ -33,6 +33,25 @@ class SessionManagerTest {
         lastActiveAtMillis = now - lastActiveMinutesAgo.minutes.inWholeMilliseconds,
     )
 
+    @Test fun `failed account adoption removes previously stored credentials`() {
+        var saved: ByteArray? = null
+        var rejectWrites = false
+        val store = SessionStore(object : CredentialCipher {
+            override fun encrypt(plaintext: ByteArray) = plaintext
+            override fun decrypt(ciphertext: ByteArray) = ciphertext
+        }, object : EncryptedBlobStore {
+            override fun read() = saved
+            override fun write(bytes: ByteArray): Boolean { if (rejectWrites) return false; saved = bytes; return true }
+            override fun clear(): Boolean { saved = null; return true }
+        })
+        val manager = SessionManager(store, SessionRefresher { ApiResult.Offline() })
+        assertTrue(manager.adopt(TokenPair("old", "refresh", "2099-01-01T00:00:00Z"), "old-owner"))
+        rejectWrites = true
+        assertTrue(!manager.adopt(TokenPair("new", "refresh", "2099-01-01T00:00:00Z"), "new-owner"))
+        assertEquals(AuthState.SignedOut, manager.state.value)
+        assertEquals(null, store.load())
+    }
+
     @Test
     fun `parses the instant format the server emits`() {
         assertEquals(1_754_827_200_000L, parseIso8601Millis("2025-08-10T12:00:00.000Z"))

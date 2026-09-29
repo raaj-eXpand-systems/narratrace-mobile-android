@@ -20,8 +20,10 @@ import kotlinx.serialization.serializer
     val id: String, val recipientName: String, val recipientEmail: String? = null, val subject: String,
     val unlockAt: String, val delivered: Boolean, val recipientVerified: Boolean, val createdAt: String,
     val deliveryState: String, val hasAudio: Boolean, val isOwner: Boolean, val sharedDeliveryManaged: Boolean, val canCancel: Boolean,
-    val unlocked: Boolean, val body: String? = null,
+    val unlocked: Boolean, val body: String? = null, val contentReported: Boolean? = null,
 )
+@Serializable data class LetterReportReceipt(val submitted: Boolean, val reference: String)
+@Serializable private data class LetterReportInput(val message: String, val submissionKey: String)
 @Serializable data class LetterDetailResponse(val letter: LetterDetail)
 @Serializable data class LetterManagement(val kind: String, val recipientEmail: String? = null)
 @Serializable private data class LetterAction(val action: String, val recipientEmail: String? = null)
@@ -60,6 +62,8 @@ internal fun ArtifactDelivery.statusLabel(): String = when {
     else -> "Delivery status unavailable · recipient cannot access"
 }
 
+internal fun LetterDetail.canModify(): Boolean = isOwner && contentReported != true
+
 /** A recipient-side inconsistency must never expose Letter content. */
 internal fun LetterDetail.canDisplayContent(): Boolean =
     body != null && (isOwner || (unlocked && recipientVerified))
@@ -73,6 +77,9 @@ internal fun LetterDetail.canDisplayContent(): Boolean =
 )
 
 class LettersApi(private val client: NarratraceApiClient) {
+    suspend fun report(id: String, message: String, submissionKey: String, token: String): ApiResult<LetterReportReceipt> = client.post(
+        "/api/v1/letters/${segment(id)}/report", NarratraceJson.encodeToString(LetterReportInput(message, submissionKey)), serializer<LetterReportReceipt>(), token,
+    )
     suspend fun audio(id: String, token: String): ApiResult<io.narratrace.android.core.media.ProtectedPlayback> = client.get("/api/v1/letters/${segment(id)}/audio", serializer<io.narratrace.android.core.media.ProtectedPlayback>(), token)
     suspend fun attachAudio(id: String, bytes: ByteArray, token: String): ApiResult<AudioPreservation> = client.postBytes(
         "/api/v1/letters/${segment(id)}/audio", bytes, "audio/mp4",
@@ -93,7 +100,7 @@ class LettersApi(private val client: NarratraceApiClient) {
     suspend fun manage(id: String, action: String, email: String?, token: String): ApiResult<LetterManagement> = client.patch(
         "/api/v1/letters/${segment(id)}", NarratraceJson.encodeToString(LetterAction(action, email)), serializer<LetterManagement>(), token,
     )
-    suspend fun delete(id: String, token: String): ApiResult<LetterManagement> = client.delete("/api/v1/letters/${segment(id)}", serializer<LetterManagement>(), token)
+    suspend fun delete(id: String, token: String): ApiResult<LetterManagement> = client.delete("/api/v1/letters/${segment(id)}", serializer<LetterManagement>(), token, deletionResource = "letter:$id")
     suspend fun deliveries(token: String): ApiResult<ArtifactDeliveryList> = client.get("/api/v1/artifact-deliveries", serializer<ArtifactDeliveryList>(), token)
     suspend fun revokeDelivery(id: String, token: String): ApiResult<Revocation> = client.delete("/api/v1/artifact-deliveries?id=${segment(id)}", serializer<Revocation>(), token)
     suspend fun createDelivery(

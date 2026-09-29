@@ -3,6 +3,8 @@ package io.narratrace.android.core.network
 import io.narratrace.android.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.serializer
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import okhttp3.Call
@@ -59,6 +61,7 @@ class NarratraceApiClient(
     private val json: Json = NarratraceJson,
     private val requestIdFactory: () -> String = { UUID.randomUUID().toString().lowercase(Locale.US) },
     private val supportReferenceSink: (String) -> Unit = {},
+    private val deletionVerification: (suspend (DeletionChallenge, String, String?) -> String?)? = null,
 ) {
 
     /**
@@ -117,7 +120,8 @@ class NarratraceApiClient(
         serializer: KSerializer<T>,
         bearer: String? = null,
         idempotencyKey: String? = null,
-    ): ApiResult<T> = execute(path, "POST", body, serializer, bearer, idempotencyKey)
+        deletionResource: String? = null,
+    ): ApiResult<T> = execute(path, "POST", body, serializer, bearer, idempotencyKey, deletionResource)
 
     suspend fun <T> postBytes(
         path: String,
@@ -214,7 +218,8 @@ class NarratraceApiClient(
         serializer: KSerializer<T>,
         bearer: String? = null,
         body: String? = null,
-    ): ApiResult<T> = execute(path, "DELETE", body, serializer, bearer, null)
+        deletionResource: String? = null,
+    ): ApiResult<T> = execute(path, "DELETE", body, serializer, bearer, null, deletionResource)
 
     private suspend fun <T> execute(
         path: String,
@@ -223,11 +228,27 @@ class NarratraceApiClient(
         serializer: KSerializer<T>,
         bearer: String?,
         idempotencyKey: String?,
+        deletionResource: String? = null,
     ): ApiResult<T> {
         val requestBody: RequestBody? = when {
             body != null -> body.toRequestBody(JSON_MEDIA_TYPE)
             method == "POST" || method == "PATCH" -> "".toRequestBody(JSON_MEDIA_TYPE)
             else -> null
+        }
+        if (deletionResource != null) {
+            val verify = deletionVerification ?: return ApiResult.Unreadable(message = "Deletion verification is unavailable. Nothing was deleted.", reason = "Missing verification handler")
+            if (bearer == null) return ApiResult.Unauthorized("Sign in before deleting.", "")
+            val challenge = post("/api/v1/account/deletion-challenge", NarratraceJson.encodeToString(DeletionChallengeInput(deletionResource)), serializer<DeletionChallenge>(), bearer)
+            if (challenge !is ApiResult.Success) return challenge as ApiResult.Failure
+            if (challenge.value.method !in setOf("email", "authenticator") || challenge.value.token.isBlank()) return ApiResult.Unreadable(reason = "Invalid deletion challenge")
+            var error: String? = null
+            repeat(8) {
+                val code = verify(challenge.value, bearer, error) ?: return ApiResult.Unreadable(message = "Deletion cancelled. Nothing was deleted.", reason = "Cancelled")
+                val result = executeRequest(path, method, requestBody, serializer, bearer, idempotencyKey, null, mapOf("X-Narratrace-Deletion-Token" to challenge.value.token, "X-Narratrace-Deletion-Code" to code))
+                if (result !is ApiResult.PreconditionRequired) return result
+                error = result.message + " If the code expired or was already used, cancel and try again for a new code."
+            }
+            return ApiResult.Unreadable(message = "Please request a new code. Nothing was deleted.", reason = "Verification attempts exhausted")
         }
         return executeRequest(path, method, requestBody, serializer, bearer, idempotencyKey, null)
     }
@@ -240,6 +261,7 @@ class NarratraceApiClient(
         bearer: String?,
         idempotencyKey: String?,
         contentSha256: String?,
+        extraHeaders: Map<String, String> = emptyMap(),
     ): ApiResult<T> = withContext(Dispatchers.IO) {
         val url = resolve(path)
             ?: return@withContext ApiResult.Unreadable(
@@ -260,6 +282,7 @@ class NarratraceApiClient(
                 bearer?.let { header("Authorization", "Bearer $it") }
                 idempotencyKey?.let { header(HEADER_IDEMPOTENCY_KEY, it) }
                 contentSha256?.let { header(HEADER_CONTENT_SHA256, it) }
+                extraHeaders.forEach { (name, value) -> header(name, value) }
             }
             .build()
 

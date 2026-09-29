@@ -19,6 +19,7 @@ import kotlinx.serialization.encodeToString
     // Every recovered draft requires an explicit review; old records lack recipient choices.
     val requiresDeliveryReview: Boolean = true,
     val ownerAccountId: String? = null,
+    val personId: String? = null,
 )
 
 class OfflineDraftStore(private val file: File, private val cipher: CredentialCipher, private val owner: (() -> String?)? = null) {

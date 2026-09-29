@@ -48,7 +48,7 @@ class FamilyApi(private val client: NarratraceApiClient) {
     suspend fun createCircle(name: String, description: String?, token: String): ApiResult<CircleResponse> = client.post("/api/v1/circles", NarratraceJson.encodeToString(CircleInput(name, description)), serializer<CircleResponse>(), token)
     suspend fun circle(id: String, token: String): ApiResult<CircleDetail> = client.get("/api/v1/circles/${segment(id)}", serializer<CircleDetail>(), token)
     suspend fun circleAction(id: String, action: String, email: String?, displayName: String?, ids: List<String>?, token: String): ApiResult<CircleMutation> = client.post("/api/v1/circles/${segment(id)}", NarratraceJson.encodeToString(CircleAction(action, email, displayName, ids)), serializer<CircleMutation>(), token)
-    suspend fun deleteCircle(id: String, token: String): ApiResult<CircleMutation> = client.delete("/api/v1/circles/${segment(id)}", serializer<CircleMutation>(), token)
+    suspend fun deleteCircle(id: String, token: String): ApiResult<CircleMutation> = client.delete("/api/v1/circles/${segment(id)}", serializer<CircleMutation>(), token, deletionResource = "circle:$id")
     suspend fun decideCircle(tokenValue: String, accept: Boolean, token: String): ApiResult<CircleDecision> = client.post("/api/v1/circles/accept", NarratraceJson.encodeToString(Decision(tokenValue, accept)), serializer<CircleDecision>(), token)
 }
 @Suppress("DEPRECATION") private fun segment(value: String) = URLEncoder.encode(value, "UTF-8").replace("+", "%20")

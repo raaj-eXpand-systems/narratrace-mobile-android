@@ -71,6 +71,7 @@ class AccountLifecycleApi(private val client: NarratraceApiClient) {
             io.narratrace.android.core.network.NarratraceJson.encodeToString(AccountClosureAction(action)),
             serializer<AccountClosureMutation>(),
             credential,
+            deletionResource = if (action == "close") "account:close" else null,
         )
 }
 

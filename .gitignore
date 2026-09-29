@@ -10,3 +10,6 @@ keystore.properties
 *.jks
 *.keystore
 
+
+.kotlin/
+output/

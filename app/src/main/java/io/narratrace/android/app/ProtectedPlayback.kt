@@ -21,23 +21,26 @@ import kotlinx.coroutines.CancellationException
 import java.net.URI
 
 /** One question player per interview; superseded and background loads cannot play. */
-internal class QuestionSpeechPlayback(private val scope: CoroutineScope) {
+internal class QuestionSpeechPlayback(private val scope: CoroutineScope, private val recording: Boolean = false) {
     var messageId by mutableStateOf<String?>(null)
         private set
     var error by mutableStateOf<String?>(null)
         private set
     var failedMessageId by mutableStateOf<String?>(null)
         private set
+    var preparing by mutableStateOf(false)
+        private set
     private var player: MediaPlayer? = null
     private var audioSource: MediaDataSource? = null
     private var job: Job? = null
     private var generation = 0
-    fun stop() { generation++; job?.cancel(); job = null; player?.release(); player = null; audioSource?.close(); audioSource = null; messageId = null }
+    fun stop() { preparing = false; generation++; job?.cancel(); job = null; player?.release(); player = null; audioSource?.close(); audioSource = null; messageId = null }
     fun toggle(id: String, load: suspend () -> FeatureResult<ByteArray>) {
         val stopping = messageId == id
         stop(); error = null; failedMessageId = null
         if (stopping) return
         messageId = id
+        preparing = true
         val current = generation
         job = scope.launch {
             when (val result = load()) {
@@ -62,18 +65,18 @@ internal class QuestionSpeechPlayback(private val scope: CoroutineScope) {
                             .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
                             .setUsage(android.media.AudioAttributes.USAGE_MEDIA).build())
                         active.setDataSource(source)
-                        active.setOnPreparedListener { if (current == generation) it.start() }
+                        active.setOnPreparedListener { if (current == generation) { preparing = false; it.start() } }
                         active.setOnCompletionListener { if (current == generation) stop() }
-                        active.setOnErrorListener { _, _, _ -> if (current == generation) { stop(); failedMessageId = id; error = "Read-aloud could not play. Tap the speaker to try again." }; true }
+                        active.setOnErrorListener { _, _, _ -> if (current == generation) { stop(); failedMessageId = id; error = if (recording) "Recording could not play. Try again." else "Read-aloud could not play. Tap the speaker to try again." }; true }
                         active.prepareAsync()
                     } catch (failure: Exception) {
                         source.close()
                         if (failure is CancellationException) throw failure
-                        if (current == generation) { stop(); failedMessageId = id; error = "Read-aloud is unavailable. Tap the speaker to try again." }
+                        if (current == generation) { stop(); failedMessageId = id; error = if (recording) "Recording is unavailable. Try again." else "Read-aloud is unavailable. Tap the speaker to try again." }
                     }
                 }
                 is FeatureResult.Unavailable -> if (current == generation) { stop(); failedMessageId = id; error = result.message }
-                FeatureResult.AuthenticationRequired -> if (current == generation) { stop(); failedMessageId = id; error = "Sign in again to read this question aloud." }
+                FeatureResult.AuthenticationRequired -> if (current == generation) { stop(); failedMessageId = id; error = if (recording) "Sign in again to play this recording." else "Sign in again to read this question aloud." }
             }
         }
     }
@@ -103,48 +106,18 @@ internal fun allowedStreamPlayback(url: String): Boolean = runCatching {
 /** Originals remain in memory; leaving/backgrounding releases the player and buffer. */
 @Composable
 internal fun ProtectedAudioButton(label: String, load: suspend () -> FeatureResult<ByteArray>) {
-    var player by remember { mutableStateOf<MediaPlayer?>(null) }
-    var busy by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val playback = remember { QuestionSpeechPlayback(scope, recording = true) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    fun stop() { player?.release(); player = null }
-    DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) stop() }
+    DisposableEffect(playback, lifecycle) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) playback.stop() }
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer); stop() }
+        onDispose { lifecycle.removeObserver(observer); playback.stop() }
     }
-    Button(onClick = {
-        if (player != null) stop() else { busy = true; message = null; scope.launch {
-            when (val result = load()) {
-                is FeatureResult.Success -> {
-                    val bytes = result.value
-                    if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) { bytes.fill(0); busy = false; return@launch }
-                    val source = object : MediaDataSource() {
-                        override fun getSize() = bytes.size.toLong()
-                        override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
-                            if (position < 0 || position >= bytes.size) return -1
-                            val count = minOf(size, bytes.size - position.toInt())
-                            bytes.copyInto(buffer, offset, position.toInt(), position.toInt() + count); return count
-                        }
-                        override fun close() { bytes.fill(0) }
-                    }
-                    val active = MediaPlayer()
-                    player = active
-                    runCatching {
-                        active.setDataSource(source)
-                        active.setOnPreparedListener { it.start(); busy = false }
-                        active.setOnCompletionListener { stop() }
-                        active.setOnErrorListener { _, _, _ -> message = "Playback failed. Try again."; busy = false; stop(); true }
-                        active.prepareAsync()
-                    }.onFailure { message = "Playback could not start. Try again."; busy = false; stop() }
-                }
-                is FeatureResult.Unavailable -> { message = result.message; busy = false }
-                FeatureResult.AuthenticationRequired -> { message = "Sign in again to play this recording."; busy = false }
-            }
-        } }
-    }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Opening recording…" else if (player != null) "Stop playback" else label) }
-    message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    Button(onClick = { playback.toggle("recording", load) }, modifier = Modifier.fillMaxWidth()) {
+        Text(if (playback.preparing) "Cancel opening recording" else if (playback.messageId != null) "Stop playback" else label)
+    }
+    playback.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 }
 
 @Composable
@@ -190,35 +163,36 @@ internal fun AccountAccessNotice() {
 @Composable
 internal fun LetterVoiceAttachment(container: AppContainer, letterId: String, saved: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     val recorder = remember { io.narratrace.android.core.media.SecureAudioRecorder(context) }
-    var recording by remember { mutableStateOf(false) }
+    val recordingState by recorder.state.collectAsState()
+    val hasRecording = recordingState != io.narratrace.android.core.media.SecureAudioRecorder.State.Idle
     var bytes by remember { mutableStateOf<ByteArray?>(null) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    fun begin() { recording = recorder.start(15 * 60); if (!recording) message = "Recording could not start." }
+    fun begin() { if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) || !recorder.start(15 * 60)) message = "Recording could not start." }
     val permission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) begin() else message = "Allow microphone access to record your voice."
     }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP && recording) { bytes = recorder.stop(); recording = false } }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer); recorder.discard(); bytes?.fill(0) }
+        lifecycle.addObserver(recorder)
+        onDispose { lifecycle.removeObserver(recorder); recorder.discard(); bytes?.fill(0) }
     }
+    if (recordingState == io.narratrace.android.core.media.SecureAudioRecorder.State.Interrupted) Text("Recording interrupted or finished. Stop recording to keep this take.")
     Text("Attach or replace your voice on this saved Letter. A delivery already sent is not recalled or sent again.")
     OutlinedButton(onClick = {
-        if (recording) { bytes?.fill(0); bytes = recorder.stop(); recording = false }
+        if (hasRecording) { bytes?.fill(0); bytes = recorder.stop() }
         else if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) begin()
         else permission.launch(android.Manifest.permission.RECORD_AUDIO)
-    }, enabled = !busy) { Text(if (recording) "Stop recording" else "Record attached voice") }
+    }, enabled = !busy) { Text(if (hasRecording) "Stop recording" else "Record attached voice") }
     if (bytes != null) Button(onClick = { busy = true; scope.launch {
         when (val result = container.lettersRepository.attachAudio(letterId, bytes!!)) {
             is FeatureResult.Success -> if (result.value.preserved) { bytes?.fill(0); bytes = null; message = "Voice attached to the saved Letter."; saved() } else message = "Attachment was not confirmed. Try again."
             is FeatureResult.Unavailable -> message = result.message
             FeatureResult.AuthenticationRequired -> message = "Sign in again before attaching your voice."
         }; busy = false
-    } }, enabled = !busy && !recording) { Text("Attach recording") }
+    } }, enabled = !busy && !hasRecording) { Text("Attach recording") }
     message?.let { Text(it) }
 }
 
@@ -258,4 +232,26 @@ internal fun TrialAccessActions(completed: Boolean, openInterview: () -> Unit, r
     AccountAccessNotice()
     Button(onClick = openInterview, modifier = Modifier.fillMaxWidth()) { Text(if (completed) "Open existing story" else "Open trial interview") }
     TextButton(onClick = refreshAccess, modifier = Modifier.fillMaxWidth()) { Text("Refresh access") }
+}
+
+@Composable
+internal fun ProtectedStreamVideo(url: String, title: String) {
+    var playing by remember(url) { mutableStateOf(false) }
+    var failed by remember(url) { mutableStateOf(false) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, url) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) playing = false }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    if (!allowedStreamPlayback(url)) { Text("This protected video could not be verified.", color = MaterialTheme.colorScheme.error); return }
+    Button({ playing = !playing; failed = false }, Modifier.fillMaxWidth()) { Text(if (playing) "Stop video" else "Play video") }
+    if (playing) AndroidView(factory = { context -> VideoView(context).apply {
+        contentDescription = "Video for $title"
+        val controls = MediaController(context)
+        controls.setAnchorView(this); setMediaController(controls); setVideoPath(url)
+        setOnPreparedListener { if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) start() }
+        setOnErrorListener { _, _, _ -> playing = false; failed = true; true }
+    } }, modifier = Modifier.fillMaxWidth().height(260.dp), onRelease = { it.stopPlayback() })
+    if (failed) Text("Video playback failed. Try again.", color = MaterialTheme.colorScheme.error)
 }

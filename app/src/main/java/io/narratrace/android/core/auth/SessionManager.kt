@@ -223,7 +223,7 @@ class SessionManager(
             accountId = accountId,
             lastActiveAtMillis = clock(),
         )
-        if (!store.save(session)) return false
+        if (!store.save(session)) { signOut(); return false }
         sessionGeneration++
         previousAccessToken = null
         _state.value = AuthState.Authenticated(session)

@@ -290,3 +290,18 @@ internal fun ThemeChoices(selected: io.narratrace.android.core.ui.NarratraceAppe
         }
     }
 }
+
+@Composable
+internal fun AccountCapabilitiesSummary(account: AccountSummary) {
+    val access = account.capabilities
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Included access", style = MaterialTheme.typography.titleLarge)
+        listOf("Capture Memories" to access.captureMemories, "Record video" to access.captureVideo,
+            "Letters" to access.createLetters, "People" to access.managePeople, "Family and Circles" to access.familyCircles).forEach { (label, included) ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+                Text(label, Modifier.weight(1f))
+                Text(if (included) "Included" else "Not included", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}

@@ -8,6 +8,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LettersContractTest {
+    @Test fun `reported owned letter stays readable but cannot be modified`() {
+        val detail = NarratraceJson.decodeFromString<LetterDetail>("""{
+          "id":"fixture","recipientName":"Maya","subject":"Fixture","unlockAt":"2026-01-01T00:00:00Z",
+          "delivered":true,"recipientVerified":true,"createdAt":"2026-01-01T00:00:00Z",
+          "deliveryState":"delivered","hasAudio":true,"isOwner":true,"sharedDeliveryManaged":true,
+          "canCancel":true,"unlocked":true,"body":"A memory","contentReported":true
+        }""")
+        assertTrue(detail.canDisplayContent())
+        assertFalse(detail.canModify())
+        assertTrue(detail.copy(contentReported = false).canModify())
+        assertFalse(detail.copy(contentReported = false, isOwner = false).canModify())
+    }
+
     @Test fun `creator private archive accepts an empty server authorized Letter list`() {
         val response = NarratraceJson.decodeFromString<LetterList>("""{"letters":[],"future":"safe"}""")
         assertTrue(response.letters.isEmpty())

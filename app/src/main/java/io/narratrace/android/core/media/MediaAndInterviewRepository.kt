@@ -131,6 +131,15 @@ class MediaAndInterviewRepository(
         return queue.items().size
     }
 
+    suspend fun correctTranscript(id: String, messageId: String, content: String): FeatureResult<CorrectedTranscript> {
+        val clean = content.trim()
+        if (clean.isEmpty() || clean.length > 4_000) return FeatureResult.Unavailable("Enter a correction between 1 and 4,000 characters.")
+        return call { api.correctTranscript(id, messageId, clean, it) }
+    }
+    suspend fun removeResponse(id: String, messageId: String): FeatureResult<RemovedResponses> {
+        val result = call { api.removeResponse(id, messageId, it) }
+        return if (result is FeatureResult.Success && messageId !in result.value.deletedIds) FeatureResult.Unavailable("The removal could not be confirmed. Refresh the interview before trying again.") else result
+    }
     suspend fun questionSpeech(id: String, messageId: String): FeatureResult<ByteArray> {
         val owner = (sessions.state.value as? io.narratrace.android.core.auth.AuthState.Authenticated)?.session?.accountId
             ?: return FeatureResult.AuthenticationRequired
@@ -192,14 +201,17 @@ class MediaAndInterviewRepository(
         destructive: Boolean = false,
         block: suspend (String) -> ApiResult<T>,
     ): FeatureResult<T> {
+        val owner = sessions.captureOperationLease() ?: return FeatureResult.AuthenticationRequired
         val lease = sessions.accessToken()
-        if (lease !is TokenLease.Valid) return FeatureResult.AuthenticationRequired
+        if (!sessions.isCurrent(owner) || lease !is TokenLease.Valid) return FeatureResult.AuthenticationRequired
         var result = block(lease.accessToken)
+        if (!sessions.isCurrent(owner)) return FeatureResult.AuthenticationRequired
         if (result is ApiResult.Unauthorized) {
             val recovered = sessions.recoverFromUnauthorized(lease.accessToken)
-            if (recovered !is TokenLease.Valid) return FeatureResult.AuthenticationRequired
+            if (!sessions.isCurrent(owner) || recovered !is TokenLease.Valid) return FeatureResult.AuthenticationRequired
             result = block(recovered.accessToken)
         }
+        if (!sessions.isCurrent(owner)) return FeatureResult.AuthenticationRequired
         if (destructive) return destructiveFeatureResult(result, sessions::signOut)
         return when (result) {
             is ApiResult.Success -> FeatureResult.Success(result.value)

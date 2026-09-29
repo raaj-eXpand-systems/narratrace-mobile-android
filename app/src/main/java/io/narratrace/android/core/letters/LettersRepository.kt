@@ -18,6 +18,13 @@ class LettersRepository(
     private val sessions: SessionManager,
     private val clock: Clock = Clock.systemUTC(),
 ) {
+    suspend fun report(id: String, message: String, submissionKey: String): FeatureResult<LetterReportReceipt> {
+        val reason = message.trim()
+        if (reason.isEmpty() || reason.length > 5_000) return FeatureResult.Unavailable("Enter a report of up to 5,000 characters.")
+        val result = call { api.report(id, reason, submissionKey, it) }
+        return if (result is FeatureResult.Success && (!result.value.submitted || result.value.reference.isBlank()))
+            FeatureResult.Unavailable("The report could not be confirmed. Please try again.") else result
+    }
     suspend fun audio(id: String) = call { api.audio(id, it) }
     suspend fun audioBytes(url: String) = api.audioBytes(url)
     suspend fun attachAudio(id: String, bytes: ByteArray): FeatureResult<AudioPreservation> {
