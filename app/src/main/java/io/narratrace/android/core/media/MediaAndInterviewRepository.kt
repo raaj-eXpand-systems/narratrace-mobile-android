@@ -152,6 +152,12 @@ class MediaAndInterviewRepository(
     }
     suspend fun interviewAudio(id: String, messageId: String) = call { api.interviewAudio(id, messageId, it) }
     suspend fun interviewVideo(id: String, messageId: String) = call { api.interviewVideo(id, messageId, it) }
+    suspend fun publicLinks() = call { api.publicLinks(it) }
+    suspend fun revokePublicLink(id: String) = call { api.revokePublicLink(id, it) }
+    suspend fun keepsakeMembers(id: String) = call { api.keepsakeMembers(id, it) }
+    suspend fun keepsakePermission(id: String, member: String, scope: String, grant: Boolean) = call { api.keepsakePermission(id, member, scope, grant, it) }
+    suspend fun keepsakeOmissions() = call { api.keepsakeOmissions(it) }
+    suspend fun requestKeepsakePermission(id: String) = call { api.requestKeepsakePermission(id, it) }
     suspend fun interviews() = call { api.interviews(it) }
     suspend fun interview(id: String) = call { api.interview(id, it) }
     suspend fun capacity() = call { api.capacity(it) }

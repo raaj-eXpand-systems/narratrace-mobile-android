@@ -107,7 +107,30 @@ internal fun mobileVideoRequestBody(item: PendingMedia): String = NarratraceJson
     VideoUploadRequest(item.originalFilename, item.byteCount, item.mimeType, item.sha256, item.archiveEntitlementId),
 )
 
+@Serializable data class PublicStoryLink(val id: String, val subject_name: String, val created_at: String? = null, val share_expires_at: String? = null)
+@Serializable data class PublicStoryLinks(val links: List<PublicStoryLink>)
+@Serializable internal data class RevokePublicStoryLink(val interviewId: String)
+@Serializable data class PermissionSaved(val ok: Boolean)
+@Serializable data class KeepsakeMember(val accountId: String, val name: String, val canGrant: Boolean = false, val chapterConsent: Boolean = false, val photoConsent: Boolean = false) {
+    fun canChange(scope: String): Boolean = canGrant || if (scope == "photos") photoConsent else chapterConsent
+}
+@Serializable data class KeepsakeMembers(val members: List<KeepsakeMember>)
+@Serializable internal data class KeepsakePermission(val requesterAccountId: String, val scope: String)
+@Serializable data class OmittedStoryteller(val id: String, val subjectName: String)
+@Serializable data class KeepsakeOmissions(val omitted: List<OmittedStoryteller>? = null)
+
 class MediaAndInterviewApi(private val client: NarratraceApiClient) {
+    suspend fun publicLinks(token: String) = client.get("/api/v1/account/public-story-links", serializer<PublicStoryLinks>(), token)
+    suspend fun revokePublicLink(id: String, token: String) = client.delete("/api/v1/account/public-story-links", serializer<PermissionSaved>(), token, NarratraceJson.encodeToString(RevokePublicStoryLink(id)))
+    suspend fun keepsakeMembers(id: String, token: String) = client.get("/api/v1/interviews/$id/keepsake-consent", serializer<KeepsakeMembers>(), token)
+    suspend fun keepsakePermission(id: String, member: String, scope: String, grant: Boolean, token: String): ApiResult<PermissionSaved> {
+        val body = NarratraceJson.encodeToString(KeepsakePermission(member, scope))
+        val path = "/api/v1/interviews/$id/keepsake-consent"
+        return if (grant) client.post(path, body, serializer<PermissionSaved>(), token) else client.delete(path, serializer<PermissionSaved>(), token, body)
+    }
+    suspend fun keepsakeOmissions(token: String) = client.get("/api/v1/keepsake", serializer<KeepsakeOmissions>(), token)
+    suspend fun requestKeepsakePermission(id: String, token: String) = client.post("/api/v1/interviews/$id/keepsake-consent", "{\"action\":\"request\"}", serializer<PermissionSaved>(), token)
+
     suspend fun authorizeUpload(item: PendingMedia, token: String): ApiResult<UploadAuthorization> = client.post(
         "/api/v1/uploads", mobileUploadRequestBody(item, "authorize"), serializer<UploadAuthorization>(), token,
     )

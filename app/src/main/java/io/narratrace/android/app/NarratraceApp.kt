@@ -1195,6 +1195,7 @@ private fun CustomerMoreScreen(
         item { Card(Modifier.fillMaxWidth().clickable { feedbackOpen = true }) { Column(Modifier.padding(16.dp)) { Text("Feedback and support", style = MaterialTheme.typography.titleMedium); Text("Send feedback or an issue report with an optional screen capture.", color = MaterialTheme.colorScheme.onSurfaceVariant) } } }
         item { Card(Modifier.fillMaxWidth().clickable { resourcesOpen = true }) { Column(Modifier.padding(16.dp)) { Text("Keepsake books and downloadable resources", style = MaterialTheme.typography.titleMedium); Text("Open authenticated resources on the Narratrace website.", color = MaterialTheme.colorScheme.onSurfaceVariant) } } }
         if (container.latestSupportReference().isNotBlank()) item { TextButton(onClick = { (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Narratrace support reference", container.latestSupportReference())) }, Modifier.fillMaxWidth()) { Text("Copy latest support reference") } }
+        item { PublicStoryLinksPanel(container) }
         item { Text("Account data and closure", style = MaterialTheme.typography.titleLarge) }
         item { Card(Modifier.fillMaxWidth().clickable(role = Role.Button) {
             closureOpen = true
@@ -2240,6 +2241,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify this interview.", color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Unavailable -> item { Text(niaStyledText(loaded.message), color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Success -> {
+                item { KeepsakeConsentPanel(container, summary.id) }
                 if (loaded.value.interview.status != "complete") item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("How are you recording today?", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
@@ -2639,10 +2641,11 @@ private fun PrivacyPermissionsScreen(modifier: Modifier, close: () -> Unit) {
 }
 
 @Composable
-private fun WebResourcesScreenContent(modifier: Modifier, close: () -> Unit) {
+private fun WebResourcesScreenContent(container: AppContainer, modifier: Modifier, close: () -> Unit) {
     val context = LocalContext.current
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { IconButton(close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }; Text("Web resources", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
+        KeepsakeOmissionsPanel(container)
         Text("Downloads stay on the web", style = MaterialTheme.typography.titleLarge); Text("The Android app never generates, receives, caches, saves, or shares downloadable files.")
         Button({ context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.narratrace.io/keepsake?client=android"))) }, Modifier.fillMaxWidth()) { Text("Open Keepsake books on the web") }
         Button({ context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.narratrace.io/account?client=android"))) }, Modifier.fillMaxWidth()) { Text("Open downloadable resources on the web") }
@@ -3242,7 +3245,7 @@ private fun FamilySharingScreen(container: AppContainer, modifier: Modifier, clo
 @Composable
 private fun WebResourcesScreen(container: AppContainer, modifier: Modifier, close: () -> Unit) {
     BackHandler(onBack = close)
-    TrialFeatureGate(container, modifier) { WebResourcesScreenContent(modifier, close) }
+    TrialFeatureGate(container, modifier) { WebResourcesScreenContent(container, modifier, close) }
 }
 
 @Composable

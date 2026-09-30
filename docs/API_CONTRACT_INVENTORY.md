@@ -533,3 +533,18 @@ iOS request headers: `X-Request-Id` (fresh lowercase UUID), `X-Narratrace-Platfo
 - **Refresh exactly once per 401, then fail closed** (plan §4). Access TTL is 15 min, so
   this fires often; the refresh mutex must be correct or you get token-rotation races that
   log users out. Single-flight this in the OkHttp `Authenticator`.
+
+## September 30, 2026 privacy synchronization
+
+Against customer main `2042d27`, Android now consumes these versioned routes:
+
+| Route | Methods | Native behavior |
+| --- | --- | --- |
+| `/api/v1/account/public-story-links` | GET / DELETE | Account inventory with storyteller and known date; one-tap revoke sends `interviewId`. |
+| `/api/v1/interviews/{id}/keepsake-consent` | GET / POST / DELETE | Server-authorized named members; chapter and photo grants/revokes send `requesterAccountId` and `scope`. |
+| `/api/v1/interviews/{id}/keepsake-consent` | POST | Explicit permission request sends `action: request` for a returned omitted interview. |
+| `/api/v1/keepsake` | GET | Additive `omitted` list identifies excluded storytellers in Web resources. |
+
+Mutations wait for the server and reload the current permission inventory. An absent `omitted` field remains unknown, while an explicit empty list confirms no pending chapter permissions. A failed or uncertain mutation discards the previous inventory until a fresh read. Missing permission flags deny new grants; blocked members with existing grants may still revoke. Authentication/network/ownership failures never become successful empty inventories. Original consent timestamps, family/block checks, photo filtering, public-link expiry and owner resolution remain server-owned. No permission metadata is persisted offline. The existing authenticated web-only book generation/download boundary remains intact, and there are no new purchase links.
+
+Regression coverage: `KeepsakePrivacyContractTest` covers exact transport methods/bodies, bearer/no-store headers, safe defaults, additive response compatibility, denial/malformed responses, and native UI entry points. Device touch/rotation/TalkBack verification and signed Play submission are separate release steps; no production grant/revoke or email was executed during implementation.
