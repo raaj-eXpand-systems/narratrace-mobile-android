@@ -27,12 +27,30 @@ import kotlinx.serialization.serializer
 @Serializable data class InterviewMessage(
     val id: String, val role: String, val content: String, val hasMedia: Boolean = false,
     val mediaType: String? = null, val createdAt: String,
+    val message_kind: String? = null, val messageKind: String? = null,
+    val control_intent: String? = null,
+) {
+    val kind: String get() = message_kind ?: messageKind ?: "answer"
+    val isAnswer: Boolean get() = kind == "answer"
+}
+@Serializable data class InterviewMenuAction(val id: String, val label: String, val description: String, val control: String? = null, val destination: String? = null)
+@Serializable data class InterviewBreakCard(val heading: String = "Your stories are saved", val body: String = "Come back anytime. Nia will pick up where you left off.", val label: String = "Continue my story", val control: String = "resume")
+@Serializable data class InterviewExperience(
+    val menuPresentation: String = "bottom_sheet",
+    val menuActions: List<InterviewMenuAction> = listOf(
+        InterviewMenuAction("pause", "Take a break", "Your story is saved. Continue anytime.", "pause"),
+        InterviewMenuAction("change_topic", "Ask me something else", "Nia will move to a different question.", "change_topic"),
+        InterviewMenuAction("help", "Help with Narratrace", "Questions about using the app. Not saved in this story.", destination = "companion"),
+    ),
+    val breakCard: InterviewBreakCard = InterviewBreakCard(),
 )
 @Serializable data class InterviewDetail(
     val interview: InterviewSummary, val messages: List<InterviewMessage>, val narrative: String? = null,
+    val conversationState: String = "active", val experience: InterviewExperience = InterviewExperience(),
 )
 @Serializable data class InterviewResponse(
     val message: InterviewMessage,
+    val conversationState: String = "active", val experience: InterviewExperience = InterviewExperience(),
     val replayed: Boolean = false,
     val requiresCheckout: Boolean = false,
     val preservationAcknowledgement: PreservationAcknowledgement? = null,
@@ -43,6 +61,7 @@ import kotlinx.serialization.serializer
 @Serializable private data class RemoveResponse(val messageId: String)
 @Serializable private data class QuestionSpeechRequest(val messageId: String)
 @Serializable private data class InterviewTextResponse(val content: String)
+@Serializable internal data class InterviewControlRequest(val control: String)
 @Serializable data class RecordingCapacity(
     val remainingBytes: Long, val audioMaxSeconds: Int, val videoMaxSeconds: Int,
 ) {
@@ -111,18 +130,25 @@ internal fun mobileVideoRequestBody(item: PendingMedia): String = NarratraceJson
 @Serializable data class PublicStoryLinks(val links: List<PublicStoryLink>)
 @Serializable internal data class RevokePublicStoryLink(val interviewId: String)
 @Serializable data class PermissionSaved(val ok: Boolean)
-@Serializable data class KeepsakeMember(val accountId: String, val name: String, val canGrant: Boolean = false, val chapterConsent: Boolean = false, val photoConsent: Boolean = false) {
+@Serializable data class KeepsakeMember(val accountId: String, val name: String, val canGrant: Boolean = false, val chapterConsent: Boolean = false, val photoConsent: Boolean = false, val stories: List<KeepsakeStory> = emptyList(), val storyCount: Int? = null) {
     fun canChange(scope: String): Boolean = canGrant || if (scope == "photos") photoConsent else chapterConsent
 }
-@Serializable data class KeepsakeMembers(val members: List<KeepsakeMember>)
+@Serializable data class KeepsakeStory(val id: String, val subjectName: String)
+@Serializable data class KeepsakeMembers(val members: List<KeepsakeMember>, val roleBlocked: Boolean = false, val familyOwnerName: String? = null)
 @Serializable internal data class KeepsakePermission(val requesterAccountId: String, val scope: String)
 @Serializable data class OmittedStoryteller(val id: String, val subjectName: String)
 @Serializable data class KeepsakeOmissions(val omitted: List<OmittedStoryteller>? = null)
 
 class MediaAndInterviewApi(private val client: NarratraceApiClient) {
+    suspend fun accountKeepsakeMembers(token: String, viewId: String) = client.getKeepsakeView("/api/v1/account/keepsake-permissions", serializer<KeepsakeMembers>(), token, viewId)
+    suspend fun accountKeepsakePermission(member: String, grant: Boolean, token: String): ApiResult<PermissionSaved> {
+        val body = NarratraceJson.encodeToString(KeepsakePermission(member, "photos"))
+        val path = "/api/v1/account/keepsake-permissions"
+        return if (grant) client.post(path, body, serializer<PermissionSaved>(), token) else client.delete(path, serializer<PermissionSaved>(), token, body)
+    }
     suspend fun publicLinks(token: String) = client.get("/api/v1/account/public-story-links", serializer<PublicStoryLinks>(), token)
     suspend fun revokePublicLink(id: String, token: String) = client.delete("/api/v1/account/public-story-links", serializer<PermissionSaved>(), token, NarratraceJson.encodeToString(RevokePublicStoryLink(id)))
-    suspend fun keepsakeMembers(id: String, token: String) = client.get("/api/v1/interviews/$id/keepsake-consent", serializer<KeepsakeMembers>(), token)
+    suspend fun keepsakeMembers(id: String, token: String, viewId: String) = client.getKeepsakeView("/api/v1/interviews/$id/keepsake-consent", serializer<KeepsakeMembers>(), token, viewId)
     suspend fun keepsakePermission(id: String, member: String, scope: String, grant: Boolean, token: String): ApiResult<PermissionSaved> {
         val body = NarratraceJson.encodeToString(KeepsakePermission(member, scope))
         val path = "/api/v1/interviews/$id/keepsake-consent"
@@ -157,6 +183,9 @@ class MediaAndInterviewApi(private val client: NarratraceApiClient) {
     suspend fun respond(id: String, content: String, key: String, token: String): ApiResult<InterviewResponse> = client.post(
         "/api/v1/interviews/${segment(id)}/responses", NarratraceJson.encodeToString(InterviewTextResponse(content)),
         serializer<InterviewResponse>(), token, key,
+    )
+    suspend fun control(id: String, control: String, key: String, token: String): ApiResult<InterviewResponse> = client.post(
+        "/api/v1/interviews/${segment(id)}/responses", NarratraceJson.encodeToString(InterviewControlRequest(control)), serializer<InterviewResponse>(), token, key,
     )
     suspend fun respondAudio(id: String, bytes: ByteArray, mime: String, sha256: String, key: String, token: String): ApiResult<InterviewResponse> = client.postBytes(
         "/api/v1/interviews/${segment(id)}/audio-responses", bytes, mime, sha256, serializer<InterviewResponse>(), token, key,

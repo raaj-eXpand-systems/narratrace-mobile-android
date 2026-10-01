@@ -154,7 +154,7 @@ class MediaAndInterviewRepository(
     suspend fun interviewVideo(id: String, messageId: String) = call { api.interviewVideo(id, messageId, it) }
     suspend fun publicLinks() = call { api.publicLinks(it) }
     suspend fun revokePublicLink(id: String) = call { api.revokePublicLink(id, it) }
-    suspend fun keepsakeMembers(id: String) = call { api.keepsakeMembers(id, it) }
+    suspend fun keepsakeMembers(id: String, viewId: String) = call { api.keepsakeMembers(id, it, viewId) }
     suspend fun keepsakePermission(id: String, member: String, scope: String, grant: Boolean) = call { api.keepsakePermission(id, member, scope, grant, it) }
     suspend fun keepsakeOmissions() = call { api.keepsakeOmissions(it) }
     suspend fun requestKeepsakePermission(id: String) = call { api.requestKeepsakePermission(id, it) }
@@ -173,6 +173,12 @@ class MediaAndInterviewRepository(
             return FeatureResult.Unavailable("Enter a valid person and life chapter.")
         }
         return call { api.createInterview(name.trim(), relation?.trim()?.takeIf(String::isNotEmpty), decade, key, it) }
+    }
+    suspend fun accountKeepsakeMembers(viewId: String) = call { api.accountKeepsakeMembers(it, viewId) }
+    suspend fun accountKeepsakePermission(member: String, grant: Boolean) = call { api.accountKeepsakePermission(member, grant, it) }
+    suspend fun control(id: String, control: String, key: String): FeatureResult<InterviewResponse> {
+        if (control !in setOf("pause", "end", "resume", "change_topic")) return FeatureResult.Unavailable("Choose a supported interview option.")
+        return call { api.control(id, control, key, it) }
     }
     suspend fun respond(id: String, content: String, key: String): FeatureResult<InterviewResponse> {
         val clean = content.trim()

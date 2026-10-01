@@ -85,6 +85,9 @@ class NarratraceApiClient(
         bearer: String? = null,
     ): ApiResult<T> = execute(path, "GET", null, serializer, bearer, null)
 
+    suspend fun <T> getKeepsakeView(path: String, serializer: KSerializer<T>, bearer: String, viewId: String): ApiResult<T> =
+        executeRequest(path, "GET", null, serializer, bearer, null, null, mapOf("X-Keepsake-View-Id" to viewId))
+
     /** Bounded, authenticated original audio; redirects cannot forward credentials. */
     suspend fun getAudio(path: String, bearer: String): ApiResult<ByteArray> = audio(path, bearer)
 

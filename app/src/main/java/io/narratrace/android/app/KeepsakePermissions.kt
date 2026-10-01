@@ -62,17 +62,17 @@ internal fun PublicStoryLinksPanel(container: AppContainer) {
 
 @Composable
 internal fun KeepsakeConsentPanel(container: AppContainer, interviewId: String) {
+    val viewId = remember(interviewId) { java.util.UUID.randomUUID().toString() }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Keepsake permissions", style = MaterialTheme.typography.titleLarge)
-        Text("Allow a family member to use this chapter or your uploaded photos in their keepsake books. Revoking permission cannot recall copies already downloaded.")
-        key(interviewId) { ServerPanel(load = { container.mediaRepository.keepsakeMembers(interviewId) }) { inventory, busy, mutate ->
+        Text("Allow a family member to use this chapter in their Keepsake book (PDF). Manage uploaded photo permissions in Account. Revoking permission cannot recall copies already downloaded.")
+        key(interviewId) { ServerPanel(load = { container.mediaRepository.keepsakeMembers(interviewId, viewId) }) { inventory, busy, mutate ->
+            if (inventory.roleBlocked) Text("Ask ${inventory.familyOwnerName ?: "your family owner"} to allow permission changes. You can still revoke existing permission.")
             if (inventory.members.isEmpty()) Text("No eligible family members.")
             inventory.members.forEach { member ->
                 Text(member.name, style = MaterialTheme.typography.titleMedium)
-                listOf("chapter" to member.chapterConsent, "photos" to member.photoConsent).forEach { (permission, granted) ->
-                    TextButton(enabled = !busy && member.canChange(permission), onClick = { mutate { container.mediaRepository.keepsakePermission(interviewId, member.accountId, permission, !granted) } }) {
-                        Text("${if (granted) "Revoke" else "Allow"} ${if (permission == "photos") "photo use" else "chapter use"} for ${member.name}")
-                    }
+                TextButton(enabled = !busy && member.canChange("chapter"), onClick = { mutate { container.mediaRepository.keepsakePermission(interviewId, member.accountId, "chapter", !member.chapterConsent) } }) {
+                    Text("${if (member.chapterConsent) "Revoke" else "Allow"} chapter use for ${member.name}")
                 }
             }
         } }
@@ -95,6 +95,33 @@ internal fun KeepsakeOmissionsPanel(container: AppContainer) {
                     outcome
                 }
             }) { Text(if (storyteller.id in requested) "Permission requested" else "Ask ${storyteller.subjectName} for permission") }
+        }
+    }
+}
+
+@Composable
+internal fun AccountKeepsakePermissionsPanel(container: AppContainer) {
+    var selectedStory by remember { mutableStateOf<KeepsakeStory?>(null) }
+    val viewId = remember { java.util.UUID.randomUUID().toString() }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Keepsake permissions", style = MaterialTheme.typography.titleLarge)
+        Text("Choose who may use your uploaded photos in their Keepsake book (PDF). Revoking cannot recall copies already downloaded.")
+        selectedStory?.let { story ->
+            Text(story.subjectName, style = MaterialTheme.typography.titleMedium)
+            KeepsakeConsentPanel(container, story.id)
+            TextButton(onClick = { selectedStory = null }) { Text("Close chapter permissions") }
+        }
+        ServerPanel(load = { container.mediaRepository.accountKeepsakeMembers(viewId) }) { inventory, busy, mutate ->
+            if (inventory.roleBlocked) Text("Ask ${inventory.familyOwnerName ?: "your family owner"} to allow permission changes. You can still revoke existing permission.")
+            if (inventory.members.isEmpty()) Text("No eligible family members.")
+            inventory.members.forEach { member ->
+                member.stories.forEach { story ->
+                    TextButton(onClick = { selectedStory = story }) { Text("Review chapter permission: ${story.subjectName}") }
+                }
+                TextButton(enabled = !busy && member.canChange("photos"), onClick = { mutate { container.mediaRepository.accountKeepsakePermission(member.accountId, !member.photoConsent) } }) {
+                    Text("${if (member.photoConsent) "Revoke" else "Allow"} photo use for ${member.name}")
+                }
+            }
         }
     }
 }

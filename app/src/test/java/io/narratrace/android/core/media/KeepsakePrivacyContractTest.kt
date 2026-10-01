@@ -17,7 +17,9 @@ class KeepsakePrivacyContractTest {
         assertTrue(app.contains("item { KeepsakeConsentPanel(container, summary.id) }"))
         assertTrue(app.contains("KeepsakeOmissionsPanel(container)"))
         assertTrue(app.contains("Open Keepsake books on the web"))
-        assertTrue(controls.contains("member.canChange(permission)"))
+        assertTrue(controls.contains("member.canChange(\"chapter\")"))
+        assertTrue(controls.contains("member.canChange(\"photos\")"))
+        assertTrue(app.contains("AccountKeepsakePermissionsPanel(container)"))
         assertTrue(controls.contains("value = if (saved.value.ok) load() else FeatureResult.Unavailable"))
         assertTrue(controls.contains("value = saved"))
         assertTrue(controls.contains("value = FeatureResult.AuthenticationRequired"))
@@ -55,7 +57,7 @@ class KeepsakePrivacyContractTest {
             requests.add(Triple(request.method, request.url.encodedPath, buffer.readUtf8()))
             val data = if (request.method != "GET") "{\"ok\":true}" else when {
                 request.url.encodedPath.endsWith("public-story-links") -> "{\"links\":[]}"
-                request.url.encodedPath.endsWith("keepsake-consent") -> "{\"members\":[]}"
+                request.url.encodedPath.endsWith("keepsake-consent") || request.url.encodedPath.endsWith("keepsake-permissions") -> "{\"members\":[]}"
                 else -> "{\"omitted\":[{\"id\":\"story\",\"subjectName\":\"Maya\"}]}"
             }
             Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(200).message("OK")
@@ -64,7 +66,7 @@ class KeepsakePrivacyContractTest {
         val api = MediaAndInterviewApi(NarratraceApiClient(baseUrl = "https://www.narratrace.io", httpClient = transport))
         assertTrue(api.publicLinks("fixture") is ApiResult.Success)
         assertTrue(api.revokePublicLink("story", "fixture") is ApiResult.Success)
-        assertTrue(api.keepsakeMembers("story", "fixture") is ApiResult.Success)
+        assertTrue(api.keepsakeMembers("story", "fixture", "00000000-0000-4000-8000-000000000001") is ApiResult.Success)
         assertTrue(api.keepsakePermission("story", "member", "chapter", true, "fixture") is ApiResult.Success)
         assertTrue(api.keepsakePermission("story", "member", "photos", false, "fixture") is ApiResult.Success)
         assertEquals("Maya", (api.keepsakeOmissions("fixture") as ApiResult.Success).value.omitted!!.single().subjectName)
@@ -74,6 +76,11 @@ class KeepsakePrivacyContractTest {
         assertEquals("DELETE", requests[4].first)
         assertTrue(requests[4].third.contains("\"scope\":\"photos\""))
         assertEquals("{\"action\":\"request\"}", requests[6].third)
+        assertTrue(api.accountKeepsakeMembers("fixture", "00000000-0000-4000-8000-000000000001") is ApiResult.Success)
+        assertTrue(api.accountKeepsakePermission("member", false, "fixture") is ApiResult.Success)
+        assertEquals("/api/v1/account/keepsake-permissions", requests[7].second)
+        assertEquals("DELETE", requests[8].first)
+
     }
 
     @Test fun `non owner and unreadable responses do not become empty permissions`() = runTest {
@@ -83,7 +90,7 @@ class KeepsakePrivacyContractTest {
                     .body("{}".toResponseBody("application/json".toMediaType())).build()
             }.build()
             val api = MediaAndInterviewApi(NarratraceApiClient(baseUrl = "https://www.narratrace.io", httpClient = transport))
-            assertFalse(api.keepsakeMembers("story", "fixture") is ApiResult.Success)
+            assertFalse(api.keepsakeMembers("story", "fixture", "00000000-0000-4000-8000-000000000001") is ApiResult.Success)
         }
     }
 }

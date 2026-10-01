@@ -1,5 +1,9 @@
 package io.narratrace.android.app
 
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ExperimentalMaterial3Api
 import io.narratrace.android.R
 import android.Manifest
 import android.app.Activity
@@ -1196,6 +1200,7 @@ private fun CustomerMoreScreen(
         item { Card(Modifier.fillMaxWidth().clickable { resourcesOpen = true }) { Column(Modifier.padding(16.dp)) { Text("Keepsake books and downloadable resources", style = MaterialTheme.typography.titleMedium); Text("Open authenticated resources on the Narratrace website.", color = MaterialTheme.colorScheme.onSurfaceVariant) } } }
         if (container.latestSupportReference().isNotBlank()) item { TextButton(onClick = { (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Narratrace support reference", container.latestSupportReference())) }, Modifier.fillMaxWidth()) { Text("Copy latest support reference") } }
         item { PublicStoryLinksPanel(container) }
+        item { AccountKeepsakePermissionsPanel(container) }
         item { Text("Account data and closure", style = MaterialTheme.typography.titleLarge) }
         item { Card(Modifier.fillMaxWidth().clickable(role = Role.Button) {
             closureOpen = true
@@ -2149,6 +2154,7 @@ private fun GuidedInterviewsScreen(container: AppContainer, modifier: Modifier, 
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSummary, modifier: Modifier, close: () -> Unit) {
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
@@ -2171,8 +2177,68 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
     var recordingMode by remember(summary.id) { mutableStateOf(modePreferences.getString(summary.id, null)) }
     val questionSpeech = rememberQuestionSpeech(container, summary.id)
     val scope = rememberCoroutineScope()
+    var options by remember { mutableStateOf(false) }
+    var help by remember { mutableStateOf(false) }
+    var support by remember { mutableStateOf(false) }
+    var pendingControl by remember { mutableStateOf<String?>(null) }
+    var controlKey by remember { mutableStateOf(UUID.randomUUID().toString()) }
+    var focusAfterResume by remember { mutableStateOf(false) }
+    val answerFocus = remember { FocusRequester() }
+    val sendControl: (String) -> Unit = { control ->
+        if (!sending && (pendingControl == null || pendingControl == control)) {
+            questionSpeech.stop()
+            if (pendingControl != control) { pendingControl = control; controlKey = UUID.randomUUID().toString() }
+            sending = true
+            options = false
+            scope.launch {
+                when (val outcome = container.mediaRepository.control(summary.id, control, controlKey)) {
+                    is FeatureResult.Success -> {
+                        val current = (result as? FeatureResult.Success)?.value
+                        if (current != null) result = FeatureResult.Success(current.copy(conversationState = outcome.value.conversationState, experience = outcome.value.experience))
+                        pendingControl = null
+                        processingMessage = null
+                        focusAfterResume = control == "resume"
+                        refresh++
+                    }
+                    is FeatureResult.Unavailable -> processingMessage = outcome.message
+                    FeatureResult.AuthenticationRequired -> processingMessage = "Sign in again before changing this interview."
+                }
+                sending = false
+            }
+        }
+    }
+    if (support) { FeedbackSupportScreen(container, modifier) { support = false }; return }
+    if (help) {
+        BackHandler { help = false }
+        Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text("Help with Narratrace", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineMedium)
+            Text("Questions about using the app. Not saved in this story.")
+            Text(niaStyledText("Use Take a break to save your place. Continue my story returns to your interview with your draft intact. Ask me something else moves Nia to another question."))
+            Text("Write an answer, record audio, or add a video using the interview controls. Review recordings before sending.")
+            Button(onClick = { support = true }) { Text("Ask a different question") }
+            TextButton(onClick = { help = false }) { Text("Back to interview") }
+        }
+        return
+    }
+    if (options) ModalBottomSheet(onDismissRequest = { options = false }) {
+        Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Interview options", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineSmall)
+            TextButton(onClick = { options = false }) { Text("Close") }
+            val experience = (result as? FeatureResult.Success)?.value?.experience
+            experience?.menuActions?.forEach { action ->
+                TextButton(enabled = !sending && pendingControl == null, onClick = {
+                    if (action.destination == "companion" || action.id == "help") { options = false; help = true }
+                    else action.control?.takeIf { it in setOf("pause", "change_topic") }?.let(sendControl)
+                }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    Column { Text(niaStyledText(action.label)); Text(niaStyledText(action.description), style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+        }
+    }
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) scope.launch {
+            sending = true
+            try {
             val mime = context.contentResolver.getType(uri)?.lowercase().orEmpty()
             if (mime !in setOf("video/mp4", "video/quicktime")) { videoMessage = "Choose an MP4 or QuickTime video."; return@launch }
             val item = runCatching { context.contentResolver.openInputStream(uri)?.use { container.mediaRepository.queue.enqueueVideoStream(
@@ -2180,6 +2246,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
             ) } }.getOrNull()
             if (item == null) videoMessage = "This video could not be encrypted safely or exceeds the 2 GB limit."
             else { videoMessage = uploadResultMessage(container, "Video response", container.mediaRepository.reconcile()); refresh++ }
+            } finally { sending = false }
         }
     }
     LaunchedEffect(refresh) {
@@ -2217,7 +2284,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
         confirmButton = { TextButton(onClick = { processingMessage = null }) { Text("Close") } },
     ) }
     if (audio) {
-        val currentQuestion = (result as? FeatureResult.Success)?.value?.messages?.lastOrNull { it.role == "assistant" }?.content
+        val currentQuestion = (result as? FeatureResult.Success)?.value?.messages?.lastOrNull { it.role == "assistant" && it.isAnswer }?.content
         AudioCaptureScreen(
             container,
             modifier,
@@ -2242,6 +2309,11 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
             is FeatureResult.Unavailable -> item { Text(niaStyledText(loaded.message), color = MaterialTheme.colorScheme.error) }
             is FeatureResult.Success -> {
                 item { KeepsakeConsentPanel(container, summary.id) }
+                if (pendingControl != null && !sending) item {
+                    Text("The interview action has not been confirmed. Retry it before sending another response.")
+                    Button(enabled = !sending, onClick = { pendingControl?.let(sendControl) }) { Text("Retry interview action") }
+                }
+
                 if (loaded.value.interview.status != "complete") item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("How are you recording today?", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
@@ -2253,10 +2325,11 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
                     }
                 }
                 val visibleMessages = if (recordingMode == "together") {
-                    listOfNotNull(loaded.value.messages.lastOrNull { it.role == "assistant" })
+                    listOfNotNull(loaded.value.messages.lastOrNull { it.role == "assistant" && it.isAnswer })
                 } else loaded.value.messages
                 items(visibleMessages, key = { it.id }) { message -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(if (recordingMode == "together") 20.dp else 12.dp)) {
                     Text(niaStyledText(if (message.role == "assistant") "Nia" else "You"), style = MaterialTheme.typography.labelMedium)
+                    if (!message.isAnswer) Text(if (message.kind == "help") "Help · not saved in your story" else "Interview control", style = MaterialTheme.typography.labelMedium)
                     Text(niaStyledText(message.content), style = if (recordingMode == "together") MaterialTheme.typography.headlineLarge else MaterialTheme.typography.bodyLarge)
                     if (message.role == "assistant" && message.content.isNotBlank()) {
                         TextButton(onClick = { questionSpeech.toggle(message.id) { container.mediaRepository.questionSpeech(summary.id, message.id) } }, enabled = !audio) {
@@ -2268,34 +2341,47 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
                         if (questionSpeech.failedMessageId == message.id) questionSpeech.error?.let { Text(niaStyledText(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                     }
                     if (message.hasMedia) InterviewRecording(container, summary.id, message.id, message.mediaType)
-                    if (message.role == "user") InterviewResponseActions(container, summary.id, message) { result = null; refresh++ }
+                    if (message.role == "assistant" && message.isAnswer && message.id == loaded.value.messages.lastOrNull { it.role == "assistant" && it.isAnswer }?.id && loaded.value.conversationState == "active" && loaded.value.interview.status != "complete" && !sending && pendingControl == null) TextButton(onClick = { sendControl("change_topic") }) { Text("Ask me something else") }
+                    if (message.role == "user" && message.isAnswer) InterviewResponseActions(container, summary.id, message) { result = null; refresh++ }
                 } } }
-                if (loaded.value.interview.status != "complete") {
+                if (loaded.value.interview.status != "complete" && loaded.value.conversationState in setOf("paused", "ended_for_now")) {
+                    item { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(loaded.value.experience.breakCard.heading, style = MaterialTheme.typography.titleLarge)
+                        Text(niaStyledText(loaded.value.experience.breakCard.body))
+                        Button(enabled = !sending && pendingControl == null, onClick = { sendControl("resume") }) { Text(loaded.value.experience.breakCard.label) }
+                    } } }
+                } else if (loaded.value.interview.status != "complete") {
+                    item { TextButton(enabled = !sending && pendingControl == null, onClick = { options = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Options") } }
                     if (recordingMode == "self") {
-                        item { OutlinedTextField(response, { response = it.take(4000); key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth(), label = { Text("Your response") }, minLines = 3) }
+                        item {
+                            LaunchedEffect(focusAfterResume) { if (focusAfterResume) { androidx.compose.runtime.withFrameNanos { }; answerFocus.requestFocus(); focusAfterResume = false } }
+                            OutlinedTextField(response, { response = it.take(4000); key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth().focusRequester(answerFocus), enabled = !sending && pendingControl == null, label = { Text("Your response") }, minLines = 3) }
                         item { Button(onClick = { sending = true; scope.launch {
                             when (val outcome = container.mediaRepository.respond(summary.id, response, key)) {
-                                is FeatureResult.Success -> { response = ""; key = UUID.randomUUID().toString(); processingMessage = null; refresh++ }
+                                is FeatureResult.Success -> {
+                                    result = FeatureResult.Success(loaded.value.copy(conversationState = outcome.value.conversationState, experience = outcome.value.experience))
+                                    response = ""; key = UUID.randomUUID().toString(); processingMessage = null; refresh++
+                                }
                                 is FeatureResult.Unavailable -> processingMessage = outcome.message
                                 FeatureResult.AuthenticationRequired -> processingMessage = "Sign in again before sending this response."
                             }
                             sending = false
-                        } }, enabled = !sending && response.trim().isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text(if (sending) "Sending response…" else "Send response") } }
+                        } }, enabled = !sending && pendingControl == null && response.trim().isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text(if (sending) "Sending response…" else "Send response") } }
                     }
                     if (recordingMode == null) item {
                         TextButton(onClick = { scope.launch { listState.animateScrollToItem(3) } }, modifier = Modifier.fillMaxWidth()) { Text("Choose how you’re recording above to start the interview") }
                     }
-                    if (recordingMode != null) item { Button(onClick = { questionSpeech.stop(); audio = true }, enabled = (capacity as? FeatureResult.Success)?.value?.audioMaxSeconds?.let { it > 0 } == true, modifier = Modifier.fillMaxWidth().height(if (recordingMode == "together") 80.dp else 48.dp)) { Text("Record audio response") } }
-                    if (recordingMode == "self") item { Button(onClick = { videoPicker.launch("video/*") }, enabled = (capacity as? FeatureResult.Success)?.value?.videoMaxSeconds?.let { it > 0 } == true, modifier = Modifier.fillMaxWidth()) { Text("Add video response") } }
+                    if (recordingMode != null) item { Button(onClick = { questionSpeech.stop(); audio = true }, enabled = !sending && pendingControl == null && (capacity as? FeatureResult.Success)?.value?.audioMaxSeconds?.let { it > 0 } == true, modifier = Modifier.fillMaxWidth().height(if (recordingMode == "together") 80.dp else 48.dp)) { Text("Record audio response") } }
+                    if (recordingMode == "self") item { Button(onClick = { videoPicker.launch("video/*") }, enabled = !sending && pendingControl == null && (capacity as? FeatureResult.Success)?.value?.videoMaxSeconds?.let { it > 0 } == true, modifier = Modifier.fillMaxWidth()) { Text("Add video response") } }
                     videoMessage?.let { item { Text(niaStyledText(it), style = MaterialTheme.typography.bodySmall) } }
                     item { when (val available = capacity) {
                         is FeatureResult.Success -> Text("Audio up to ${available.value.audioMaxSeconds / 60}m ${available.value.audioMaxSeconds % 60}s · video up to ${available.value.videoMaxSeconds / 60}m ${available.value.videoMaxSeconds % 60}s per recording. Record another response afterward.", style = MaterialTheme.typography.bodySmall)
                         else -> Text("Recording capacity is unavailable. Refresh before recording audio.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     } }
                     if (recordingMode == "self") item { Button(onClick = { sending = true; scope.launch { val changed = container.mediaRepository.status(summary.id, "complete"); processingMessage = changed.failureMessage(); sending = false; if (changed is FeatureResult.Success) refresh++ } },
-                        enabled = !sending && loaded.value.messages.any { it.role != "assistant" }, modifier = Modifier.fillMaxWidth()) { Text("Mark interview complete") } }
-                    if (recordingMode == "self" && loaded.value.messages.none { it.role != "assistant" }) item { Text("Add at least one response before marking this interview complete.", style = MaterialTheme.typography.bodySmall) }
-                } else item { Button(onClick = { sending = true; scope.launch { val changed = container.mediaRepository.status(summary.id, "active"); processingMessage = changed.failureMessage(); sending = false; if (changed is FeatureResult.Success) refresh++ } }, modifier = Modifier.fillMaxWidth()) { Text("Reopen interview") } }
+                        enabled = !sending && pendingControl == null && loaded.value.messages.any { it.role == "user" && it.isAnswer }, modifier = Modifier.fillMaxWidth()) { Text("Mark interview complete") } }
+                    if (recordingMode == "self" && loaded.value.messages.none { it.role == "user" && it.isAnswer }) item { Text("Add at least one response before marking this interview complete.", style = MaterialTheme.typography.bodySmall) }
+                } else item { Button(onClick = { sending = true; scope.launch { val changed = container.mediaRepository.status(summary.id, "active"); processingMessage = changed.failureMessage(); sending = false; if (changed is FeatureResult.Success) refresh++ } }, enabled = !sending && pendingControl == null, modifier = Modifier.fillMaxWidth()) { Text("Reopen interview") } }
                 loaded.value.narrative?.let { narrative -> item { Text("Narrative", style = MaterialTheme.typography.titleLarge) }; item { Text(narrative) } }
                 if (recordingMode != "together") item { Text("Interview coverage", style = MaterialTheme.typography.titleLarge) }
                 if (recordingMode != "together") item { when (val value = insights) {
@@ -2306,7 +2392,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
                     Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) { Text(highlight.title, style = MaterialTheme.typography.titleMedium); Text(highlight.excerpt) } }
                 } }
                 if (loaded.value.interview.status == "complete") {
-                    if (loaded.value.narrative == null) item { Button(onClick = { confirmNarrativeAgreement = true }, enabled = !sending, modifier = Modifier.fillMaxWidth()) { Text("Create narrative") } }
+                    if (loaded.value.narrative == null) item { Button(onClick = { confirmNarrativeAgreement = true }, enabled = !sending && pendingControl == null, modifier = Modifier.fillMaxWidth()) { Text("Create narrative") } }
                     else {
                         item { if (!shareVerified) TextButton(onClick = { refresh++ }) { Text("Retry sharing status") } else if (shareToken == null) Button(onClick = { sending = true; scope.launch { val created = container.mediaRepository.share(summary.id, "POST"); if (created is FeatureResult.Success) shareToken = created.value.shareToken else processingMessage = created.failureMessage(); sending = false } }, modifier = Modifier.fillMaxWidth()) { Text("Create public story link") }
                         else Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
