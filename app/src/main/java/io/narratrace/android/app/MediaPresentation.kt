@@ -5,6 +5,8 @@ import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.CircularProgressIndicator
@@ -74,9 +76,9 @@ internal fun ProtectedPhotoThumbnail(container: AppContainer, mediaId: String) {
             }
         } finally { loading = false }
     }
-    Box(Modifier.size(80.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(width = 80.dp, height = 70.dp).clip(RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
         val preview = bitmap
-        if (preview != null) Image(preview.asImageBitmap(), null, Modifier.size(80.dp), contentScale = ContentScale.Fit)
+        if (preview != null) Image(preview.asImageBitmap(), null, Modifier.size(width = 80.dp, height = 70.dp), contentScale = ContentScale.Crop)
         else if (loading) CircularProgressIndicator(Modifier.size(24.dp))
         else Icon(Icons.Default.PhotoLibrary, null, Modifier.size(32.dp))
     }
