@@ -73,8 +73,8 @@ class MediaAndInterviewContractTest {
             "The Terms and Privacy Policy clarify that Stripe-hosted Checkout collects and stores payment credentials and checkout addresses, while Narratrace receives limited transaction and billing records.",
             LEGAL_CHANGE_SUMMARY,
         )
-        assertTrue(NIA_DEFINITION.contains("AI assistant"))
-        assertTrue(NIA_DEFINITION.contains("not a person"))
+        assertTrue(NIA_DEFINITION.contains("AI companion"))
+        assertTrue(NIA_DEFINITION.contains("can make mistakes"))
         assertTrue(ADULT_ACCOUNT_NOTICE.contains("18 years of age or older"))
     }
 

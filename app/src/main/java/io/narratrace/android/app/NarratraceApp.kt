@@ -173,7 +173,7 @@ internal fun shouldRefreshPhotoInsights(mediaKind: String, enabled: Boolean) =
 internal fun visibleMediaClarifyingQuestions(mediaKind: String, enabled: Boolean, questions: List<String>) =
     if (shouldRefreshPhotoInsights(mediaKind, enabled)) questions.take(3) else emptyList()
 internal const val LEGAL_CHANGE_SUMMARY = "The Terms and Privacy Policy clarify that Stripe-hosted Checkout collects and stores payment credentials and checkout addresses, while Narratrace receives limited transaction and billing records."
-internal const val NIA_DEFINITION = "Nia is the name Narratrace gives its AI assistant and AI-supported story companion. References to Nia mean Narratrace’s AI features, not a person."
+internal const val NIA_DEFINITION = "Nia is Narratrace’s AI companion and can make mistakes, so please check her suggestions."
 internal const val ADULT_ACCOUNT_NOTICE = "Narratrace accounts are intended only for people 18 years of age or older."
 internal const val ACCOUNT_CLOSURE_URL = "https://www.narratrace.io/account?client=android#closure"
 internal const val PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=io.narratrace.android"
@@ -581,7 +581,7 @@ private fun RequiredLegalGate(container: AppContainer, content: @Composable () -
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text(LEGAL_REVIEW_HEADING, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
-        item { Text("$LEGAL_CHANGE_SUMMARY $NIA_DEFINITION Review the current documents before continuing. Privacy acknowledgement confirms receipt of the notice; it is not consent to optional AI processing.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text("$LEGAL_CHANGE_SUMMARY Review the current documents before continuing. Privacy acknowledgement confirms receipt of the notice; it is not consent to optional processing by Nia.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         when (val current = result) {
             null -> item { LoadingMessage("Checking current document versions…") }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to review the current documents.", color = MaterialTheme.colorScheme.error) }
@@ -1116,6 +1116,7 @@ private fun CustomerMoreScreen(
             } }
         }
         item { Text("Account", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge) }
+        item { Text(niaStyledText(NIA_DEFINITION), color = MaterialTheme.colorScheme.onSurfaceVariant) }
         when (val current = account) {
             null -> item { LoadingMessage("Loading account and security details…") }
             AccountResult.AuthenticationRequired -> item { Text("Sign in again to verify account access.", color = MaterialTheme.colorScheme.error) }
@@ -1409,7 +1410,7 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, f
                             mediaAiMessage = when (saved) {
                                 is FeatureResult.Success -> if (enabled) "${choice.second.first} allowed." else "${choice.second.first} turned off."
                                 is FeatureResult.Unavailable -> saved.message
-                                FeatureResult.AuthenticationRequired -> "Sign in again to update media AI choices."
+                                FeatureResult.AuthenticationRequired -> "Sign in again to update media insight choices."
                             }
                             mediaAiPreferences = if (saved is FeatureResult.Success) saved else container.settingsRepository.mediaAiPreferences()
                             busy = false
@@ -1422,13 +1423,13 @@ private fun ProfileSettingsScreen(container: AppContainer, modifier: Modifier, f
         }
         if (mediaAiPreferences !is FeatureResult.Success) item { Text(when (val current = mediaAiPreferences) {
             is FeatureResult.Unavailable -> current.message
-            FeatureResult.AuthenticationRequired -> "Sign in again to review media AI choices."
-            else -> "Loading media AI choices…"
+            FeatureResult.AuthenticationRequired -> "Sign in again to review media insight choices."
+            else -> "Loading media insight choices…"
         }, Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
-        item { TextButton(onClick = { busy = true; scope.launch { mediaAiPreferences = container.settingsRepository.mediaAiPreferences(); busy = false } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Reload media AI disclosures") } }
+        item { TextButton(onClick = { busy = true; scope.launch { mediaAiPreferences = container.settingsRepository.mediaAiPreferences(); busy = false } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Reload Nia media notices") } }
         mediaAiMessage?.let { item { Text(niaStyledText(it), Modifier.semantics { liveRegion = LiveRegionMode.Polite }) } }
         item { Text("Sensitive story information", style = MaterialTheme.typography.titleMedium) }
-        item { Text(niaStyledText("This separate optional consent allows Nia to process story details that may reveal sensitive information. Withdrawing it stops future AI interview processing; preserved content remains available."), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text(niaStyledText("This separate optional consent allows Nia to process story details that may reveal sensitive information. Withdrawing it stops future interview processing by Nia; preserved content remains available."), color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { Button(onClick = { busy = true; scope.launch {
             val current = (legal as? FeatureResult.Success)?.value
             val changed = if (current?.specialCategoryConsent == true) container.mediaRepository.withdrawSpecialCategoryConsent() else container.mediaRepository.grantSpecialCategoryConsent()
@@ -2098,14 +2099,13 @@ private fun GuidedInterviewsScreen(container: AppContainer, modifier: Modifier, 
             IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
             Text("Stories", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
         } }
-        item { Text(niaStyledText("$NIA_DEFINITION Nia uses your responses to suggest thoughtful follow-up questions. AI may make mistakes; review generated material before relying on or sharing it."), color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (legal is FeatureResult.Success && !(legal as FeatureResult.Success<io.narratrace.android.core.media.LegalAcceptance>).value.aiNoticeAcknowledged) {
             item { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("AI notice", style = MaterialTheme.typography.titleMedium)
-                Text(niaStyledText("Nia uses your responses to generate follow-up questions, transcripts, summaries, insights, and requested narratives. AI can make mistakes; review results before relying on or sharing them."))
+                Text("Nia notice", style = MaterialTheme.typography.titleMedium)
+                Text(niaStyledText("Please check Nia’s suggestions and use Feedback to report a problem."))
                 val context = LocalContext.current
-                TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, "$TERMS_POLICY_URL#ai-generated-content".toUri())) }) { Text("Read the AI notice") }
-                Button(onClick = { accepting = true; scope.launch { legal = container.mediaRepository.acknowledgeAiNotice(); accepting = false } }, enabled = !accepting) { Text("Acknowledge AI notice") }
+                TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, "$TERMS_POLICY_URL#ai-generated-content".toUri())) }) { Text("Read the Nia notice") }
+                Button(onClick = { accepting = true; scope.launch { legal = container.mediaRepository.acknowledgeAiNotice(); accepting = false } }, enabled = !accepting) { Text("Acknowledge Nia notice") }
             } } }
         }
         if (legal is FeatureResult.Success && !(legal as FeatureResult.Success<io.narratrace.android.core.media.LegalAcceptance>).value.specialCategoryConsent) {
@@ -2302,7 +2302,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
             Text(summary.subjectName, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
         } }
         item { ContentReportButton(container, "interview", summary.id) }
-        item { Text(niaStyledText("This interview is private. Nia’s voice is AI-generated. Review Nia’s suggestions before sharing."), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text(niaStyledText("This interview is private."), color = MaterialTheme.colorScheme.onSurfaceVariant) }
         when (val loaded = result) {
             null -> item { LoadingMessage("Loading transcript…") }
             FeatureResult.AuthenticationRequired -> item { Text("Sign in again to verify this interview.", color = MaterialTheme.colorScheme.error) }
@@ -2913,10 +2913,16 @@ private fun VerifiedLibrary(container: AppContainer, mode: String, memories: Lis
         if (mediaLoading) item { LoadingMessage("Loading your private Media…") }
         else if (!mediaVerified) item { Text("Your media could not yet be verified. Return to Media to try again.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         else if (media.isEmpty()) item { Text("No preserved media yet.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        else items(media, key = { "media:${it.id}" }) { item -> Card(Modifier.fillMaxWidth().clickable { openMedia(item) }) { Column(Modifier.padding(16.dp)) {
-            Text(item.title, style = MaterialTheme.typography.titleMedium)
-            Text("${item.kind.replaceFirstChar(Char::uppercase)} · ${item.state.replace('_', ' ')}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } } }
+        else items(media, key = { "media:${it.id}" }) { item -> Card(Modifier.fillMaxWidth().clickable { openMedia(item) }) {
+            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                if (item.kind == "photo") ProtectedPhotoThumbnail(container, item.id)
+                Column(Modifier.weight(1f)) {
+                    Text(mediaDisplayTitle(item.title, item.kind), style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    Text("${item.kind.replaceFirstChar(Char::uppercase)} · ${item.state.replace('_', ' ')}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(mediaSavedDate(item.createdAt), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        } }
         }
     }
 }
@@ -2942,7 +2948,7 @@ private fun CustomerMediaDetailScreen(container: AppContainer, mediaId: String, 
             return savedMessage
         }
         return when (val refreshed = container.mediaRepository.refreshPhotoInsights(mediaId)) {
-            is FeatureResult.Success -> { saveError = false; refreshed.value.message }
+            is FeatureResult.Success -> { saveError = false; if (refreshed.value.kind == "skipped") savedMessage else "Photo insights updated." }
             is FeatureResult.Unavailable -> { saveError = true; refreshed.message }
             FeatureResult.AuthenticationRequired -> { saveError = true; "Sign in again before refreshing photo insights." }
         }
@@ -2974,7 +2980,7 @@ private fun CustomerMediaDetailScreen(container: AppContainer, mediaId: String, 
         is FeatureResult.Success -> {
             val detail = loaded.value.media
             Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Media") }; Text(detail.title, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
+                Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Media") }; Text(mediaDisplayTitle(detail.title, detail.kind), Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge) }
                 ContentReportButton(container, "media", mediaId)
                 if (detail.kind == "photo") {
                     if (!photoInsightsEnabled) TextButton({ settingsOpen = true }) { Text(niaStyledText("Review Nia’s media insights in Profile")) }

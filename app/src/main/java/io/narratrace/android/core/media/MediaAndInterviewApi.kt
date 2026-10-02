@@ -96,7 +96,7 @@ import kotlinx.serialization.serializer
     val summary: String? = null, val caption: String? = null, val narrative: String? = null,
     val tags: List<String> = emptyList(), val customTags: List<String> = emptyList(),
     val insights: List<MediaInsight> = emptyList(), val clarifyingQuestions: List<String> = emptyList(),
-    val playbackUrl: String? = null,
+    val playbackUrl: String? = null, val rendition: String? = null,
 )
 @Serializable data class MediaDetailResponse(val kind: String, val media: MediaDetail)
 @Serializable data class Deleted(val deleted: Boolean)
@@ -227,6 +227,7 @@ class MediaAndInterviewApi(private val client: NarratraceApiClient) {
         "/api/v1/media/${segment(id)}", NarratraceJson.encodeToString(MediaActionInput("refresh_insights")), serializer<PhotoInsightRefresh>(), token,
     )
     suspend fun playback(url: String): ByteArray? = client.getSignedStorage(url)
+    suspend fun thumbnail(url: String): ByteArray? = client.getSignedStorage(url, 8 * 1024 * 1024)
     suspend fun authorizeVideo(item: PendingMedia, token: String): ApiResult<VideoAuthorization> = if (item.kind == PendingMediaKind.InterviewVideo) client.post(
         "/api/v1/interviews/${segment(item.interviewId.orEmpty())}/video-responses",
         NarratraceJson.encodeToString(InterviewVideoRequest("authorize", item.mimeType, item.byteCount)), serializer<VideoAuthorization>(), token,

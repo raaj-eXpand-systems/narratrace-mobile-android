@@ -208,6 +208,7 @@ class MediaAndInterviewRepository(
         return call { api.updateTags(id, clean, it) }
     }
     suspend fun playback(url: String) = api.playback(url)
+    suspend fun thumbnail(url: String) = api.thumbnail(url)
 
     private suspend fun <T> call(
         destructive: Boolean = false,
