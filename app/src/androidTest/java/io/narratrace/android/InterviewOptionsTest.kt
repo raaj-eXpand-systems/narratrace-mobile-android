@@ -5,6 +5,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
+import io.narratrace.android.core.ui.NarratraceAppearance
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -39,6 +44,31 @@ class InterviewOptionsTest {
             }
         }
         compose.runOnIdle { assertEquals(2, completed); assertEquals(2, deleted); assertEquals(2, back) }
+    }
+    @Test fun large_text_and_themes_keep_actions_reachable_on_small_screens() {
+        var appearance by mutableStateOf(NarratraceAppearance.UpcomingPreview)
+        var mode by mutableStateOf("self")
+        compose.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
+                NarratraceTheme(appearance = appearance) {
+                    Column(Modifier.size(320.dp, 560.dp).verticalScroll(rememberScrollState())) {
+                        InterviewOptionsDetails("Synthetic storyteller with a long display name", "myself", mode, false, false, { mode = it }, {}, {}, {})
+                    }
+                }
+            }
+        }
+        for (theme in listOf(NarratraceAppearance.UpcomingPreview, NarratraceAppearance.Daylight, NarratraceAppearance.Lamplight)) {
+            compose.runOnIdle { appearance = theme }
+            compose.onNodeWithText("Mark complete").performScrollTo().assertIsNotEnabled()
+            for (label in listOf("Back to interviews", "Delete interview", "Someone else is here", "Recording myself")) {
+                val node = compose.onNodeWithText(label).performScrollTo().assertIsDisplayed()
+                node.assertHeightIsAtLeast(48.dp)
+                org.junit.Assert.assertTrue(node.fetchSemanticsNode().boundsInRoot.width <= compose.onRoot().fetchSemanticsNode().boundsInRoot.width)
+            }
+            compose.onNodeWithText("Someone else is here").performScrollTo().performClick().assertIsSelected()
+            compose.onNodeWithText("Recording myself").performScrollTo().performClick().assertIsSelected()
+        }
     }
     @Test fun busy_options_prevent_interrupting_capture_or_upload() {
         compose.setContent { NarratraceTheme {
