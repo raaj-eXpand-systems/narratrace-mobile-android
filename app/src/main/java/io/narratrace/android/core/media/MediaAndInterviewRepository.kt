@@ -160,7 +160,7 @@ class MediaAndInterviewRepository(
     suspend fun requestKeepsakePermission(id: String) = call { api.requestKeepsakePermission(id, it) }
     suspend fun interviews() = call { api.interviews(it) }
     suspend fun interview(id: String) = call { api.interview(id, it) }
-    suspend fun capacity() = call { api.capacity(it) }
+    suspend fun capacity(interviewId: String? = null) = call { api.capacity(it, interviewId) }
     suspend fun legal() = call { api.legal(it) }
     suspend fun acceptTerms() = call { api.acceptTerms(it) }
     suspend fun acknowledgePrivacy() = call { api.acknowledgePrivacy(it) }

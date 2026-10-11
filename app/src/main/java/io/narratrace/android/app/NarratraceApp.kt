@@ -91,6 +91,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.browser.customtabs.CustomTabsIntent
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -2178,6 +2179,8 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
     val questionSpeech = rememberQuestionSpeech(container, summary.id)
     val scope = rememberCoroutineScope()
     var options by remember { mutableStateOf(false) }
+    var confirmComplete by remember { mutableStateOf(false) }
+    var checkingVideo by remember { mutableStateOf(false) }
     var help by remember { mutableStateOf(false) }
     var support by remember { mutableStateOf(false) }
     var pendingControl by remember { mutableStateOf<String?>(null) }
@@ -2221,7 +2224,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
         return
     }
     if (options) ModalBottomSheet(onDismissRequest = { options = false }) {
-        Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Interview options", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineSmall)
             TextButton(onClick = { options = false }) { Text("Close") }
             val experience = (result as? FeatureResult.Success)?.value?.experience
@@ -2233,6 +2236,16 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
                     Column { Text(niaStyledText(action.label)); Text(niaStyledText(action.description), style = MaterialTheme.typography.bodySmall) }
                 }
             }
+            val current = (result as? FeatureResult.Success)?.value
+            InterviewOptionsDetails(
+                subjectName = summary.subjectName, relation = summary.subjectRelation,
+                mode = recordingMode, busy = sending || pendingControl != null,
+                canComplete = current?.messages?.any { it.role == "user" && it.isAnswer } == true,
+                onMode = { mode -> recordingMode = mode; modePreferences.edit().putString(summary.id, mode).apply() },
+                onComplete = { options = false; confirmComplete = true },
+                onDelete = { options = false; confirmDelete = true },
+                onBack = { options = false; close() },
+            )
         }
     }
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -2251,12 +2264,27 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
     }
     LaunchedEffect(refresh) {
         result = container.mediaRepository.interview(summary.id)
-        capacity = container.mediaRepository.capacity()
+        capacity = container.mediaRepository.capacity(summary.id)
         insights = container.mediaRepository.insights(summary.id)
         val sharing = container.mediaRepository.share(summary.id, "GET")
         shareVerified = sharing is FeatureResult.Success
         if (sharing is FeatureResult.Success) shareToken = sharing.value.shareToken
     }
+    if (confirmComplete) AlertDialog(
+        onDismissRequest = { confirmComplete = false }, title = { Text("Mark this interview complete?") },
+        text = { Text("You can reopen it later to add more responses.") },
+        confirmButton = { Button(onClick = {
+            confirmComplete = false; sending = true
+            scope.launch {
+                try {
+                    val changed = container.mediaRepository.status(summary.id, "complete")
+                    processingMessage = changed.failureMessage()
+                    if (changed is FeatureResult.Success) refresh++
+                } finally { sending = false }
+            }
+        }) { Text("Confirm — mark done") } },
+        dismissButton = { TextButton(onClick = { confirmComplete = false }) { Text("Keep recording") } },
+    )
     if (confirmDelete) AlertDialog(
         onDismissRequest = { confirmDelete = false }, title = { Text("Delete this interview?") },
         text = { Text("The transcript, response recordings, and narrative will be permanently removed.") },
@@ -2297,7 +2325,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
     }
     BackHandler(onBack = close)
     LazyColumn(modifier.fillMaxSize().imePadding(), state = listState, contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Row(verticalAlignment = Alignment.CenterVertically) {
+        if (recordingMode == null || (result as? FeatureResult.Success)?.value?.interview?.status == "complete") item { Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to interviews") }
             Text(summary.subjectName, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
         } }
@@ -2314,7 +2342,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
                     Button(enabled = !sending, onClick = { pendingControl?.let(sendControl) }) { Text("Retry interview action") }
                 }
 
-                if (loaded.value.interview.status != "complete") item {
+                if (loaded.value.interview.status != "complete" && recordingMode == null) item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("How are you recording today?", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
                         Text("Choose the view that feels comfortable. You can switch between answers without losing a recording.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -2352,7 +2380,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
                     } } }
                 } else if (loaded.value.interview.status != "complete") {
                     item { TextButton(enabled = !sending && pendingControl == null, onClick = { options = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Options") } }
-                    if (recordingMode == "self") {
+                    if (recordingMode != null) {
                         item {
                             LaunchedEffect(focusAfterResume) { if (focusAfterResume) { androidx.compose.runtime.withFrameNanos { }; answerFocus.requestFocus(); focusAfterResume = false } }
                             OutlinedTextField(response, { response = it.take(4000); key = UUID.randomUUID().toString() }, Modifier.fillMaxWidth().focusRequester(answerFocus), enabled = !sending && pendingControl == null, label = { Text("Your response") }, minLines = 3) }
@@ -2372,15 +2400,33 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
                         TextButton(onClick = { scope.launch { listState.animateScrollToItem(3) } }, modifier = Modifier.fillMaxWidth()) { Text("Choose how you’re recording above to start the interview") }
                     }
                     if (recordingMode != null) item { Button(onClick = { questionSpeech.stop(); audio = true }, enabled = !sending && pendingControl == null && (capacity as? FeatureResult.Success)?.value?.audioMaxSeconds?.let { it > 0 } == true, modifier = Modifier.fillMaxWidth().height(if (recordingMode == "together") 80.dp else 48.dp)) { Text("Record audio response") } }
-                    if (recordingMode == "self") item { Button(onClick = { videoPicker.launch("video/*") }, enabled = !sending && pendingControl == null && (capacity as? FeatureResult.Success)?.value?.videoMaxSeconds?.let { it > 0 } == true, modifier = Modifier.fillMaxWidth()) { Text("Add video response") } }
-                    videoMessage?.let { item { Text(niaStyledText(it), style = MaterialTheme.typography.bodySmall) } }
+                    if (recordingMode != null) item {
+                        Button(onClick = {
+                            if (!sending && pendingControl == null) {
+                                sending = true; checkingVideo = true; videoMessage = null
+                                scope.launch {
+                                    try {
+                                        when (val fresh = container.mediaRepository.capacity(summary.id)) {
+                                            is FeatureResult.Success -> {
+                                                capacity = fresh
+                                                videoMessage = fresh.value.videoSelectionError
+                                                if (videoMessage == null) videoPicker.launch("video/*")
+                                            }
+                                            is FeatureResult.Unavailable -> videoMessage = fresh.message
+                                            FeatureResult.AuthenticationRequired -> videoMessage = "Sign in again to verify video credits."
+                                        }
+                                    } finally { sending = false; checkingVideo = false }
+                                }
+                            }
+                        }, enabled = !sending && pendingControl == null, modifier = Modifier.fillMaxWidth()) {
+                            Text(if (checkingVideo) "Checking video credits…" else "Video")
+                        }
+                    }
+                    videoMessage?.let { item { Text(niaStyledText(it), Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, style = MaterialTheme.typography.bodySmall) } }
                     item { when (val available = capacity) {
                         is FeatureResult.Success -> Text("Audio up to ${available.value.audioMaxSeconds / 60}m ${available.value.audioMaxSeconds % 60}s · video up to ${available.value.videoMaxSeconds / 60}m ${available.value.videoMaxSeconds % 60}s per recording. Record another response afterward.", style = MaterialTheme.typography.bodySmall)
                         else -> Text("Recording capacity is unavailable. Refresh before recording audio.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     } }
-                    if (recordingMode == "self") item { Button(onClick = { sending = true; scope.launch { val changed = container.mediaRepository.status(summary.id, "complete"); processingMessage = changed.failureMessage(); sending = false; if (changed is FeatureResult.Success) refresh++ } },
-                        enabled = !sending && pendingControl == null && loaded.value.messages.any { it.role == "user" && it.isAnswer }, modifier = Modifier.fillMaxWidth()) { Text("Mark interview complete") } }
-                    if (recordingMode == "self" && loaded.value.messages.none { it.role == "user" && it.isAnswer }) item { Text("Add at least one response before marking this interview complete.", style = MaterialTheme.typography.bodySmall) }
                 } else item { Button(onClick = { sending = true; scope.launch { val changed = container.mediaRepository.status(summary.id, "active"); processingMessage = changed.failureMessage(); sending = false; if (changed is FeatureResult.Success) refresh++ } }, enabled = !sending && pendingControl == null, modifier = Modifier.fillMaxWidth()) { Text("Reopen interview") } }
                 loaded.value.narrative?.let { narrative -> item { Text("Narrative", style = MaterialTheme.typography.titleLarge) }; item { Text(narrative) } }
                 if (recordingMode != "together") item { Text("Interview coverage", style = MaterialTheme.typography.titleLarge) }
@@ -2406,7 +2452,7 @@ private fun InterviewDetailScreen(container: AppContainer, summary: InterviewSum
                         item { Text("A public link exposes only this completed narrative. The transcript stays private, and the link can be revoked.", style = MaterialTheme.typography.bodySmall) }
                     }
                 }
-                if (recordingMode != "together") item { TextButton(onClick = { confirmDelete = true }, modifier = Modifier.fillMaxWidth()) { Text("Delete interview", color = MaterialTheme.colorScheme.error) } }
+                if (loaded.value.interview.status == "complete") item { TextButton(onClick = { confirmDelete = true }, modifier = Modifier.fillMaxWidth()) { Text("Delete interview", color = MaterialTheme.colorScheme.error) } }
             }
         }
     }
@@ -3402,4 +3448,26 @@ private fun FeatureResult<*>.failureMessage(): String? = when (this) {
     is FeatureResult.Success -> null
     is FeatureResult.Unavailable -> message
     FeatureResult.AuthenticationRequired -> "Sign in again to complete this action."
+}
+
+
+@Composable
+internal fun InterviewOptionsDetails(
+    subjectName: String, relation: String?, mode: String?, busy: Boolean, canComplete: Boolean,
+    onMode: (String) -> Unit, onComplete: () -> Unit, onDelete: () -> Unit, onBack: () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(subjectName, Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+        relation?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        TextButton(onClick = onBack, enabled = !busy) { Text("Back to interviews") }
+        Button(onClick = onComplete, enabled = !busy && canComplete, modifier = Modifier.fillMaxWidth()) { Text("Mark complete") }
+        if (!canComplete) Text("Add at least one response before marking this interview complete.")
+        TextButton(onClick = onDelete, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Delete interview", color = MaterialTheme.colorScheme.error) }
+        Text("Recording mode", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
+        for ((value, label) in listOf("together" to "Someone else is here", "self" to "Recording myself")) {
+            OutlinedButton(onClick = { onMode(value) }, enabled = !busy,
+                colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(containerColor = if (mode == value) MaterialTheme.colorScheme.secondaryContainer else androidx.compose.ui.graphics.Color.Transparent),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).semantics { selected = mode == value }) { Text(label) }
+        }
+    }
 }

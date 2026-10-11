@@ -64,7 +64,14 @@ import kotlinx.serialization.serializer
 @Serializable internal data class InterviewControlRequest(val control: String)
 @Serializable data class RecordingCapacity(
     val remainingBytes: Long, val audioMaxSeconds: Int, val videoMaxSeconds: Int,
+    val videoAvailabilityChecked: Boolean = false, val videoUnavailableReason: String? = null,
 ) {
+    val videoSelectionError: String? get() = when {
+        !videoAvailabilityChecked -> "Could not verify video credits. Please try again."
+        videoUnavailableReason != null -> videoUnavailableReason
+        videoMaxSeconds < 1 -> "No video recording capacity is available. You can continue by typing."
+        else -> null
+    }
 }
 @Serializable data class LegalAcceptance(
     val termsAccepted: Boolean, val privacyAcknowledged: Boolean, val aiNoticeAcknowledged: Boolean,
@@ -190,8 +197,8 @@ class MediaAndInterviewApi(private val client: NarratraceApiClient) {
     suspend fun respondAudio(id: String, bytes: ByteArray, mime: String, sha256: String, key: String, token: String): ApiResult<InterviewResponse> = client.postBytes(
         "/api/v1/interviews/${segment(id)}/audio-responses", bytes, mime, sha256, serializer<InterviewResponse>(), token, key,
     )
-    suspend fun capacity(token: String): ApiResult<RecordingCapacity> = client.get(
-        "/api/v1/interviews/recording-capacity", serializer<RecordingCapacity>(), token,
+    suspend fun capacity(token: String, interviewId: String? = null): ApiResult<RecordingCapacity> = client.get(
+        "/api/v1/interviews/recording-capacity" + (interviewId?.let { "?interviewId=${segment(it)}" } ?: ""), serializer<RecordingCapacity>(), token,
     )
     suspend fun legal(token: String): ApiResult<LegalAcceptance> = client.get("/api/v1/legal/acceptance", serializer<LegalAcceptance>(), token)
     suspend fun acceptTerms(token: String) = legalChoice(LegalAcknowledgement(acceptTerms = true), token)

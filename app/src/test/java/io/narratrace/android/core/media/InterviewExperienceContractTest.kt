@@ -7,6 +7,29 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.MediaType.Companion.toMediaType
 
 class InterviewExperienceContractTest {
+    @Test fun `video selection fails closed without a fresh affirmative server check`() {
+        val legacy = NarratraceJson.decodeFromString<RecordingCapacity>("""{"remainingBytes":1000,"audioMaxSeconds":600,"videoMaxSeconds":600}""")
+        assertNotNull(legacy.videoSelectionError)
+        assertNotNull(legacy.copy(videoAvailabilityChecked = true, videoUnavailableReason = "No credits remain.").videoSelectionError)
+        assertNotNull(legacy.copy(videoAvailabilityChecked = true, videoMaxSeconds = 0).videoSelectionError)
+        assertNull(legacy.copy(videoAvailabilityChecked = true).videoSelectionError)
+    }
+    @Test fun `video preflight sends scoped fresh requests and preserves server denial`() = kotlinx.coroutines.test.runTest {
+        val requests = mutableListOf<okhttp3.Request>()
+        val http = okhttp3.OkHttpClient.Builder().addInterceptor { chain ->
+            requests += chain.request()
+            val body = """{"ok":true,"data":{"remainingBytes":1000,"audioMaxSeconds":600,"videoMaxSeconds":600,"videoAvailabilityChecked":true,"videoUnavailableReason":"No credits remain."},"meta":{"apiVersion":"1","requestId":"test"}}"""
+            okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1).code(200).message("fixture").body(body.toResponseBody("application/json".toMediaType())).build()
+        }.build()
+        val api = MediaAndInterviewApi(io.narratrace.android.core.network.NarratraceApiClient(baseUrl = "https://example.test", httpClient = http))
+        repeat(2) {
+            val result = api.capacity("fixture-token", "story") as io.narratrace.android.core.network.ApiResult.Success
+            assertEquals("No credits remain.", result.value.videoSelectionError)
+        }
+        assertEquals(2, requests.size)
+        requests.forEach { assertEquals("story", it.url.queryParameter("interviewId")); assertEquals("GET", it.method) }
+    }
+
     @Test fun `schema outage manual retry keeps request identity and sends once per attempt`() = kotlinx.coroutines.test.runTest {
         val requests = mutableListOf<okhttp3.Request>()
         val http = okhttp3.OkHttpClient.Builder().addInterceptor { chain ->
